@@ -2,12 +2,15 @@ import argparse
 import csv
 import glob
 import os
+import json
+from collections import OrderedDict
 
 from PIL import Image
 import cv2
 from tqdm import tqdm
 import numpy as np
-from tensorflow.keras.models import load_model
+import pandas as pd
+from keras.models import load_model
 from huggingface_hub import hf_hub_download
 import torch
 from pathlib import Path
@@ -98,7 +101,7 @@ def main(args):
     # 画像を読み込む
     model = load_model(args.model_dir)
 
-    # label_names = pd.read_csv("2022_0000_0899_6549/selected_tags.csv")
+    # label_names = pd.read_csv(os.path.join(args.model_dir, CSV_FILE))
     # 依存ライブラリを増やしたくないので自力で読むよ
 
     with open(os.path.join(args.model_dir, CSV_FILE), "r", encoding="utf-8") as f:
@@ -108,6 +111,7 @@ def main(args):
         rows = l[1:]
     assert header[0] == "tag_id" and header[1] == "name" and header[2] == "category", f"unexpected csv format: {header}"
 
+    rating_tags = [row[1] for row in rows[0:] if row[2] == "9"]
     general_tags = [row[1] for row in rows[1:] if row[2] == "0"]
     character_tags = [row[1] for row in rows[1:] if row[2] == "4"]
 
@@ -129,16 +133,24 @@ def main(args):
 
         for (image_path, _), prob in zip(path_imgs, probs):
             # 最初の4つはratingなので無視する
-            # # First 4 labels are actually ratings: pick one with argmax
+            # First 4 labels are actually ratings: pick one with argmax
             # ratings_names = label_names[:4]
             # rating_index = ratings_names["probs"].argmax()
             # found_rating = ratings_names[rating_index: rating_index + 1][["name", "probs"]]
+            
+            # Pairing the tags with their corresponding probabilities
+            paired_tags_and_probs = zip(rating_tags, prob[:4])
+
+            # Finding the tag with the highest probability
+            highest_prob_tag = max(paired_tags_and_probs, key=lambda x: x[1])[0]
+
 
             # それ以降はタグなのでconfidenceがthresholdより高いものを追加する
             # Everything else is tags: pick any where prediction confidence > threshold
             combined_tags = []
             general_tag_text = ""
             character_tag_text = ""
+            tags_and_confidence = {}
             for i, p in enumerate(prob[4:]):
                 if i < len(general_tags) and p >= args.general_threshold:
                     tag_name = general_tags[i]
@@ -149,6 +161,7 @@ def main(args):
                         tag_freq[tag_name] = tag_freq.get(tag_name, 0) + 1
                         general_tag_text += ", " + tag_name
                         combined_tags.append(tag_name)
+                        tags_and_confidence[tag_name] = p
                 elif i >= len(general_tags) and p >= args.character_threshold:
                     tag_name = character_tags[i - len(general_tags)]
                     if args.remove_underscore and len(tag_name) > 3:
@@ -158,6 +171,7 @@ def main(args):
                         tag_freq[tag_name] = tag_freq.get(tag_name, 0) + 1
                         character_tag_text += ", " + tag_name
                         combined_tags.append(tag_name)
+                        tags_and_confidence[tag_name] = p
 
             # 先頭のカンマを取る
             if len(general_tag_text) > 0:
@@ -168,6 +182,17 @@ def main(args):
             tag_text = ", ".join(combined_tags)
 
             with open(os.path.splitext(image_path)[0] + args.caption_extension, "wt", encoding="utf-8") as f:
+                if args.caption_extension == ".json":
+                    # Convert float32 to standard floats and round to two decimal places
+                    tags_and_confidence = {key: round(float(value), 2) for key, value in tags_and_confidence.items()}
+                    # Sorting the dictionary by values
+                    sorted_tags_and_values = sorted(tags_and_confidence.items(), key=lambda x: x[1], reverse=True)
+                    # Creating an ordered dictionary from the sorted items
+                    ordered_tags_and_values = OrderedDict(sorted_tags_and_values)
+                    # Add rating and rags
+                    rating_and_tags = {'rating': highest_prob_tag, 'tags': ordered_tags_and_values}
+                    # Converting the ordered dictionary to a JSON-formatted string
+                    tag_text = json.dumps(rating_and_tags)
                 f.write(tag_text + "\n")
                 if args.debug:
                     print(f"\n{image_path}:\n  Character tags: {character_tag_text}\n  General tags: {general_tag_text}")
