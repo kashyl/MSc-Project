@@ -55,7 +55,6 @@ def _generate_payloads(
 def _update_model_options(model_option_payload: Dict[str, Any]):
     opt = requests.get(url=f'{SD_URL}/sdapi/v1/options')
     opt_json = opt.json()
-    opt_json['sd_model_checkpoint'] = '<MODEL_NAME>'
     new_options = {**opt_json, **model_option_payload}
     requests.post(url=f'{SD_URL}/sdapi/v1/options', json=new_options)
 

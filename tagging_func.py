@@ -24,7 +24,7 @@ def generate_tags(
         frequency_tags,
 ):
     log.info(f'Captioning files in {train_data_dir}...')
-    run_cmd = f'accelerate launch "f{WD14_TAGGER_PATH}"'
+    run_cmd = f'accelerate launch "{WD14_TAGGER_PATH}"'
     run_cmd += f' --batch_size={int(batch_size)}'
     run_cmd += f' --general_threshold={general_threshold}'
     run_cmd += f' --character_threshold={character_threshold}'
