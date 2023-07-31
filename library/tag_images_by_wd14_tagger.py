@@ -1,6 +1,5 @@
 import argparse
 import csv
-import glob
 import os
 import json
 from collections import OrderedDict
@@ -15,7 +14,7 @@ from huggingface_hub import hf_hub_download
 import torch
 from pathlib import Path
 
-import library.train_util as train_util
+import train_util as train_util
 
 # from wd14 tagger
 IMAGE_SIZE = 448
@@ -99,7 +98,7 @@ def main(args):
         print("using existing wd14 tagger model")
 
     # 画像を読み込む
-    model = load_model(args.model_dir)
+    model = load_model(args.model_dir, compile=False)
 
     # label_names = pd.read_csv(os.path.join(args.model_dir, CSV_FILE))
     # 依存ライブラリを増やしたくないので自力で読むよ
