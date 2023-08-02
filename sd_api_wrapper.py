@@ -74,14 +74,15 @@ def update_model_options(model_option_payload: Dict[str, Any]):
     new_options = {**opt_json, **model_option_payload}
     requests.post(url=f'{SD_URL}/sdapi/v1/options', json=new_options)
 
-async def request_image(session, data):
-    async with session.post(f'{SD_URL}/sdapi/v1/txt2img', json=data) as response:
-        return await response.json()
+async def request_image(payload):
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f'{SD_URL}/sdapi/v1/txt2img', json=payload) as response:
+            return await response.json()
 
 def as_percentage(progress_float):
     return f"{progress_float * 100:.2f}%"
 
-async def check_progress(session):
+async def get_progress(session):
     """
     {"progress": 0, "eta_relative": 0, "state": {}, "current_image": "string", "textinfo": "string"}
     """
@@ -93,6 +94,7 @@ async def check_progress(session):
         total_steps = progress_response['state']['sampling_steps']
         image_live_preview = progress_response['current_image']
         log.info(f"Progress: {as_percentage(progress)}, ETA: {eta:.2f}s, Step: {current_step}/{total_steps}")
+        return decode_base64_to_image(image_live_preview)[0] if image_live_preview else None
 
 @log_function_call
 async def generate_image(sd_model: SDModelType, prompt: str, prompt_n: str = None) -> Image.Image:
@@ -105,20 +107,9 @@ async def generate_image(sd_model: SDModelType, prompt: str, prompt_n: str = Non
         prompt_n=prompt_n
     )
 
-    async with aiohttp.ClientSession() as session:
-        # Create the POST task for the image request
-        task_post = asyncio.create_task(request_image(session, payload))
+    resp = await request_image(payload)
 
-        # Check the progress and sleep every second while waiting for the POST task to complete
-        while not task_post.done():
-            await check_progress(session)
-            await asyncio.sleep(1)
-
-        # Get the result of the POST task
-        resp = await task_post
-        # resp = {'images': ['bjkahsdjsa...', 'askjdhas...', 'ajkjhdashda...']}
-
-    image_base64 = extract_base64(resp.get('images', [])[0]) # Fixed indexing
+    image_base64 = extract_base64(resp['images'][0])
     image, image_data = decode_base64_to_image(image_base64)
 
     metadata = get_metadata(image_data)
