@@ -2,6 +2,7 @@ import os
 import logging
 from filelock import FileLock
 import time
+import asyncio
 
 from rich.theme import Theme
 from rich.logging import RichHandler
@@ -21,22 +22,21 @@ def log_function_call(func):
     """
     Decorator for Logging Function Calls.
     A decorator can log the start and end of a function call, including the elapsed time.
+    It also supports async functions.
     """
-    def wrapper(*args, **kwargs):
+
+    async def wrapper(*args, **kwargs):
         start_time = time.time()
         log.info(f"Starting {func.__name__} ...")
-        result = func(*args, **kwargs)
+
+        result = await func(*args, **kwargs) if asyncio.iscoroutinefunction(func) else func(*args, **kwargs)
+
         end_time = time.time()
         elapsed_time = "{:.1f}".format(end_time - start_time)
         log.info(f"Finished {func.__name__}. Total time: {elapsed_time} seconds")
         return result
+
     return wrapper
-
-def log_image_generation_progress(i, total, start_time, message="Saved image"):
-    end_time = time.time()
-    elapsed_time = "{:.1f}".format(end_time - start_time)
-    log.info(f"{message} #{i + 1} out of {total}. Generation time: {elapsed_time} seconds")
-
 
 def setup_logging(clean=False, debug=False):
     global log

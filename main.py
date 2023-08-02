@@ -11,7 +11,11 @@ undesired_tags = '1girl,1boy,solo,no humans'
 
 
 def main():
-    asyncio.run(sd_api_wrapper.generate(sd_model=SDModels.sardonyxREDUX_v20, prompt='whale on deep blue sky,white birds,star,thick clouds'))
+    asyncio.run(sd_api_wrapper.generate_image(
+        sd_model=SDModels.sardonyxREDUX_v20, 
+        prompt='whale on deep blue sky,white birds,star,thick clouds'
+        )
+    )
     
     # generate_tags(
     #     train_data_dir=IMG_DIR,
