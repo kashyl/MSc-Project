@@ -1,13 +1,9 @@
 import os
 import subprocess
-from custom_logging import setup_logging
+from custom_logging import log
 from config import ROOT_DIR
 
 WD14_TAGGER_PATH = os.path.join(ROOT_DIR, 'library', 'tag_images_by_wd14_tagger.py')
-
-# Set up logging
-log = setup_logging()
-
 
 def generate_tags(
         train_data_dir,

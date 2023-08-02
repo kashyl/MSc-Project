@@ -17,7 +17,6 @@ LOG_PATH = os.path.join(LOG_DIR, 'setup.log')
 
 log = None
 
-
 def log_function_call(func):
     """
     Decorator for Logging Function Calls.
@@ -95,3 +94,5 @@ def setup_logging(clean=False, debug=False):
     log.addHandler(rh)
     
     return log
+
+log = setup_logging(debug=True)

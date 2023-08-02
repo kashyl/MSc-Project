@@ -1,11 +1,9 @@
 import requests, base64, time, os, io
 from PIL import Image, PngImagePlugin
 from config import SDModelType, PromptPrefix, SD_URL, IMG_DIR as OUTPUT_DIR
-from custom_logging import setup_logging, log_function_call
+from custom_logging import log, log_function_call
 from typing import Dict, Any, List, Tuple, Optional
 import aiohttp, asyncio
-
-log = setup_logging(debug=True)
 
 def uniquify(path: str) -> str:
     filename, extension = os.path.splitext(path)
@@ -53,7 +51,6 @@ def save_image(image: Image.Image) -> None:
     image.save(file_path)
     log.info(f'Image saved: {file_path}')
 
-
 def add_prefix_to_prompt(prompt: str, prefix: str) -> str:
     return ", \n\n".join([_ for _ in [prefix, prompt] if _])
 
@@ -86,19 +83,16 @@ def as_percentage(progress_float):
 
 async def check_progress(session):
     """
-    {
-        "progress": 0,
-        "eta_relative": 0,
-        "state": {},
-        "current_image": "string",
-        "textinfo": "string"
-    }
+    {"progress": 0, "eta_relative": 0, "state": {}, "current_image": "string", "textinfo": "string"}
     """
     async with session.get(f'{SD_URL}/sdapi/v1/progress') as response:
         progress_response = await response.json()
         progress = progress_response['progress']
         eta = progress_response['eta_relative']
-        log.info(f"Progress: {as_percentage(progress)}, ETA: {eta:.2f}s")
+        current_step = progress_response['state']['sampling_step']
+        total_steps = progress_response['state']['sampling_steps']
+        image_live_preview = progress_response['current_image']
+        log.info(f"Progress: {as_percentage(progress)}, ETA: {eta:.2f}s, Step: {current_step}/{total_steps}")
 
 @log_function_call
 async def generate_image(sd_model: SDModelType, prompt: str, prompt_n: str = None) -> Image.Image:
