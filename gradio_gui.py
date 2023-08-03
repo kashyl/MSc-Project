@@ -8,8 +8,8 @@ class GradioUI:
     def __init__(self):
         pass
 
-    async def generate_image_gradio(self, gr_progress=gr.Progress()):
-        sd_model = SDModels.sardonyxREDUX_v20
+    async def generate_image_gradio(self, checkpoint: str, gr_progress=gr.Progress()):
+        sd_model = SDModels.get_sd_model(checkpoint)
         prompt = 'whale on deep blue sky, white birds, star, thick clouds'
 
         # Run the async function and wait for it to complete
@@ -28,16 +28,36 @@ class GradioUI:
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
             gr.Markdown("Generate image.")
+            with gr.Accordion("Settings", open=False):
+                sd_checkpoint = gr.Dropdown(
+                    choices=[
+                        SDModels.CheckpointNamesGUI.GHOSTMIX,
+                        SDModels.CheckpointNamesGUI.REALISTICVISION,
+                        # SDModels.CheckpointNamesGUI.SARDONYX,
+                        # SDModels.CheckpointNamesGUI.AOM3,
+                        SDModels.CheckpointNamesGUI.AOM3A1B,
+                        # SDModels.CheckpointNamesGUI.ANYLORA,
+                        SDModels.CheckpointNamesGUI.ANYTHINGV3,
+                        # SDModels.CheckpointNamesGUI.BREAKDRO,
+                        SDModels.CheckpointNamesGUI.SCHAUXIER,
+                        SDModels.CheckpointNamesGUI.KANPIRO,
+                        SDModels.CheckpointNamesGUI.DREAMSHAPER,
+                        SDModels.CheckpointNamesGUI.REVANIMATED
+                        # SDModels.CheckpointNamesGUI.WALNUTCREAM,
+                        # SDModels.CheckpointNamesGUI.PERFECTWORLD,
+                    ],
+                    label='Stable Diffusion Checkpoint (Model)',
+                    show_label=True,
+                    value=SDModels.CheckpointNamesGUI.GHOSTMIX,
+                    interactive=True
+                )
+
             with gr.Row():
                 with gr.Box():
                     generated_image = gr.Image(label='Generated image', elem_id='generated-image', show_share_button=True)
                 text_input = gr.Textbox()
             image_button = gr.Button("Generate")
-
-            with gr.Accordion("Open for More!"):
-                gr.Markdown("Look at me...")
-
-            image_button.click(self.generate_image_gradio, outputs=generated_image)
+            image_button.click(self.generate_image_gradio, inputs=sd_checkpoint, outputs=generated_image)
 
         demo.queue(concurrency_count=20).launch()
 

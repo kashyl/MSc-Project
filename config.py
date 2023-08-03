@@ -13,7 +13,7 @@ class PromptPrefix:
 
 _default_prefixes = PromptPrefix(
     positive = '(masterpiece:1.2), best quality, highres, extremely detailed wallpaper, perfect lighting, (extremely detailed CG:1.2), (8k:1.1), (ultra-detailed), (best illustration), (oil painting), absurdres',
-    negative = 'easynegative, (bad_prompt_version2:0.8), ng_deepnegative_v1_75t, badhandsv5-neg, censored, (low quality:1.3), (worst quality:1.3), (monochrome:0.8), (deformed:1.3), (malformed hands:1.4), (poorly drawn hands:1.4), (mutated fingers:1.4), (bad anatomy:1.3), (extra limbs:1.35), (poorly drawn face:1.4), (signature:1.2), (artist name:1.2), (watermark:1.2)'
+    negative = 'nsfw, easynegative, (bad_prompt_version2:0.8), ng_deepnegative_v1_75t, badhandsv5-neg, censored, (low quality:1.3), (worst quality:1.3), (monochrome:0.8), (deformed:1.3), (malformed hands:1.4), (poorly drawn hands:1.4), (mutated fingers:1.4), (bad anatomy:1.3), (extra limbs:1.35), (poorly drawn face:1.4), (signature:1.2), (artist name:1.2), (watermark:1.2)'
 )
 
 def _create_option_payload(sd_model_checkpoint: str, **kwargs) -> Dict[str, Any]:
@@ -93,6 +93,48 @@ class SDModels:
             negative='(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime), text, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, BadDream'
         )
     )
+    dreamshaper_v8_vae = SDModelType.create('dreamshaper_8.safetensors [879DB523C3]',
+        option_payload_overrides={
+            "sd_vae": "Automatic"
+        })
+    rev_animated_v122 = SDModelType.create('revAnimated_v122.safetensors [4199BCDD14]')
+
+    class CheckpointNamesGUI:
+        REALISTICVISION = 'Realistic Vision v4 - Photorealistic'
+        GHOSTMIX = 'Ghost Mix v20 - Anime/Photorealistic'
+        # SARDONYX = 'Sardonyx Redux v20'
+        # AOM3 = 'AbyssOrangeMix3'
+        AOM3A1B = 'AbyssOrangeMix3 A1B - Anime/Landscapes'
+        # ANYLORA = 'Any Lora'
+        ANYTHINGV3 = 'Anything v3 - Cartoon/Anime/Drawings'
+        # BREAKDRO = 'BreakDro'
+        KANPIRO = 'KanpiroMix v20 - Photorealistic'
+        # WALNUTCREAM = 'WalnutCream HerbMix v1'
+        SCHAUXIER = 'Sch Auxier v10 - Cartoon/Anime'
+        # PERFECTWORLD = 'Perfect World v4'
+        DREAMSHAPER = 'Dream Shaper - Photorealistic/Paintings'
+        REVANIMATED = "Rev Animated - Anime/Cartoon/Illustration"
+    
+    @staticmethod
+    def get_sd_model(checkpoint_name) -> SDModelType:
+        # Define a mapping between checkpoint names and their corresponding SDModelType objects
+        mapping = {
+            # SDModels.CheckpointNamesGUI.SARDONYX: SDModels.sardonyxREDUX_v20,
+            # SDModels.CheckpointNamesGUI.AOM3: SDModels.abyssorangemix3A0M3_aom3,
+            SDModels.CheckpointNamesGUI.AOM3A1B: SDModels.abyssorangemix3A0M3_aom3alb,
+            # SDModels.CheckpointNamesGUI.ANYLORA: SDModels.anyloraCheckpoint_novaeFpl6,
+            SDModels.CheckpointNamesGUI.ANYTHINGV3: SDModels.anything_v3_full,
+            # SDModels.CheckpointNamesGUI.BREAKDRO: SDModels.breakdro_11464,
+            SDModels.CheckpointNamesGUI.KANPIRO: SDModels.kanpiromix_v20,
+            # SDModels.CheckpointNamesGUI.WALNUTCREAM: SDModels.walnutcreamBlend_herbmixV1,
+            SDModels.CheckpointNamesGUI.SCHAUXIER: SDModels.schAuxier_v10,
+            SDModels.CheckpointNamesGUI.GHOSTMIX: SDModels.ghostmix_v20Bakedvae,
+            SDModels.CheckpointNamesGUI.REALISTICVISION: SDModels.realistic_vision_v40_vae,
+            SDModels.CheckpointNamesGUI.DREAMSHAPER: SDModels.dreamshaper_v8_vae,
+            SDModels.CheckpointNamesGUI.REVANIMATED: SDModels.rev_animated_v122
+        }
+        # Retrieve and return the SDModelType object for the given checkpoint name
+        return mapping.get(checkpoint_name)
 
 
 # prompt reference:
