@@ -92,9 +92,10 @@ async def get_progress(session):
         eta = progress_response['eta_relative']
         current_step = progress_response['state']['sampling_step']
         total_steps = progress_response['state']['sampling_steps']
-        image_live_preview = progress_response['current_image']
+        current_image = progress_response['current_image']
         log.info(f"Progress: {as_percentage(progress)}, ETA: {eta:.2f}s, Step: {current_step}/{total_steps}")
-        return decode_base64_to_image(image_live_preview)[0] if image_live_preview else None
+        return progress, eta, current_step, total_steps, \
+               decode_base64_to_image(current_image)[0] if current_image else None
 
 @log_function_call
 async def generate_image(sd_model: SDModelType, prompt: str, prompt_n: str = None) -> Image.Image:
