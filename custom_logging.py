@@ -10,38 +10,69 @@ from rich.console import Console
 from rich.pretty import install as pretty_install
 from rich.traceback import install as traceback_install
 
+from functools import wraps
+
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(ROOT_DIR, 'logs')  # Directory where the log file will be stored
 LOG_PATH = os.path.join(LOG_DIR, 'setup.log')
 
 
-log = None
+logger = None
 
 def log_function_call(func):
     """
-    Decorator for Logging Function Calls.
-    A decorator can log the start and end of a function call, including the elapsed time.
-    It also supports async functions.
+    Decorator to log information about function calls.
+
+    This decorator logs the start and end of a function call, including the elapsed time, for both
+    synchronous and asynchronous functions. It prints log messages indicating the start of the function,
+    its name, and the total time taken to execute the function in seconds.
+
+    Parameters:
+        func (callable or coroutine function): The function or coroutine function to be wrapped.
+
+    Returns:
+        callable: A wrapper function that logs information about the call.
+
+    Usage:
+        @log_function_call
+        def sync_function():
+            pass
+
+        @log_function_call
+        async def async_function():
+            pass
     """
-
-    async def wrapper(*args, **kwargs):
-        start_time = time.time()
-        log.info(f"Starting {func.__name__} ...")
-
-        result = await func(*args, **kwargs) if asyncio.iscoroutinefunction(func) else func(*args, **kwargs)
-
+    def log_info(func_name, start_time):
         end_time = time.time()
         elapsed_time = "{:.1f}".format(end_time - start_time)
-        log.info(f"Finished {func.__name__}. Total time: {elapsed_time} seconds")
-        return result
+        logger.info(f"Finished {func_name}. Total time: {elapsed_time} seconds")
 
-    return wrapper
+    if asyncio.iscoroutinefunction(func):
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            start_time = time.time()
+            logger.info(f"Starting {func.__name__} ...")
+            result = await func(*args, **kwargs)
+            log_info(func.__name__, start_time)
+            return result
+
+        return async_wrapper
+    else:
+        @wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            start_time = time.time()
+            logger.info(f"Starting {func.__name__} ...")
+            result = func(*args, **kwargs)
+            log_info(func.__name__, start_time)
+            return result
+
+        return sync_wrapper
 
 def setup_logging(clean=False, debug=False):
-    global log
+    global logger
     
-    if log is not None:
-        return log
+    if logger is not None:
+        return logger
     
     try:
         if clean and os.path.isfile(LOG_PATH):
@@ -90,9 +121,9 @@ def setup_logging(clean=False, debug=False):
 
     rh.set_name(logging.DEBUG if debug else logging.INFO)
     
-    log = logging.getLogger("sd")
-    log.addHandler(rh)
+    logger = logging.getLogger("sd")
+    logger.addHandler(rh)
     
-    return log
+    return logger
 
-log = setup_logging(debug=True)
+logger = setup_logging(debug=True)
