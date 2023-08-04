@@ -119,9 +119,11 @@ async def generate_image(sd_model: SDModelType, prompt: str, prompt_n: str = Non
     return image
 
 async def mock_generate_image(sd_model: SDModelType, prompt: str, prompt_n: str = None) -> Image.Image:
+    """For debugging"""
     return get_first_image()
 
 def get_first_image():
+    """For debugging"""
     for filename in os.listdir(os.path.join(OUTPUT_DIR)):
         if filename.endswith('.png'):
             image_path = os.path.join(os.path.join(OUTPUT_DIR), filename)
