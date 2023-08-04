@@ -1,6 +1,7 @@
 import gradio as gr
 import numpy as np
-from sd_api_wrapper import generate_image as sd_generate_image, get_progress
+from sd_api_wrapper import mock_generate_image as sd_generate_image, get_progress, save_image
+from image_tagging import image_tagger
 from config import SDModels
 import asyncio, aiohttp, time
 
@@ -24,6 +25,11 @@ class GradioUI:
         # Get the result of the POST task
         image_with_metadata = await post_task
         return image_with_metadata
+    
+    async def generate_and_tag(self, checkpoint: str, gr_progress=gr.Progress()):
+        img = await self.generate_image_gradio(checkpoint)
+        img, tags = await image_tagger.tag_image(img)
+        return img
 
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
@@ -33,18 +39,13 @@ class GradioUI:
                     choices=[
                         SDModels.CheckpointNamesGUI.GHOSTMIX,
                         SDModels.CheckpointNamesGUI.REALISTICVISION,
-                        # SDModels.CheckpointNamesGUI.SARDONYX,
-                        # SDModels.CheckpointNamesGUI.AOM3,
                         SDModels.CheckpointNamesGUI.AOM3A1B,
-                        # SDModels.CheckpointNamesGUI.ANYLORA,
                         SDModels.CheckpointNamesGUI.ANYTHINGV3,
-                        # SDModels.CheckpointNamesGUI.BREAKDRO,
                         SDModels.CheckpointNamesGUI.SCHAUXIER,
                         SDModels.CheckpointNamesGUI.KANPIRO,
                         SDModels.CheckpointNamesGUI.DREAMSHAPER,
-                        SDModels.CheckpointNamesGUI.REVANIMATED
-                        # SDModels.CheckpointNamesGUI.WALNUTCREAM,
-                        # SDModels.CheckpointNamesGUI.PERFECTWORLD,
+                        SDModels.CheckpointNamesGUI.REVANIMATED,
+                        SDModels.CheckpointNamesGUI.MISTOON
                     ],
                     label='Stable Diffusion Checkpoint (Model)',
                     show_label=True,
@@ -56,8 +57,8 @@ class GradioUI:
                 with gr.Box():
                     generated_image = gr.Image(label='Generated image', elem_id='generated-image', show_share_button=True)
                 text_input = gr.Textbox()
-            image_button = gr.Button("Generate")
-            image_button.click(self.generate_image_gradio, inputs=sd_checkpoint, outputs=generated_image)
+            generate_btn = gr.Button("Generate")
+            generate_btn.click(self.generate_and_tag, inputs=sd_checkpoint, outputs=generated_image)
 
         demo.queue(concurrency_count=20).launch()
 

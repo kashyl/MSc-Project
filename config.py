@@ -60,21 +60,12 @@ class SDModelType:
         return SDModelType(option_payload=option_payload, payload=payload, prompt_prefix=prompt_prefix)
 
 class SDModels:
-    sardonyxREDUX_v20 = SDModelType.create('sardonyxREDUX_v20.safetensors [40d4f9d626]')
-    abyssorangemix3A0M3_aom3 = SDModelType.create('abyssorangemix3AOM3_aom3.safetensors [d124fcl8f0]')
     abyssorangemix3A0M3_aom3alb = SDModelType.create('abyssorangemix3AOM3_aom3a1b.safetensors [5493a0ec49]')
-    anyloraCheckpoint_novaeFpl6 = SDModelType.create('anyloraCheckpoint_novaeFp16.safetensors [ad1150a839]')
     anything_v3_full = SDModelType.create('anything-v3-full.safetensors [abcafl4e5a]')
-    breakdro_11464 = SDModelType.create('breakdro_I1464.safetensors [683fb86a54]')
     mistoonAnime_v20 = SDModelType.create('mistoonAnime_v20.safetensors [c35e1054c0]')
     kanpiromix_v20 = SDModelType.create('kanpiromix_v20.safetensors [b8cfleaa89]')
-    walnutcreamBlend_herbmixV1 = SDModelType.create('walnutcreamBlend_herbmixV1.safetensors [09524d894d]')
     schAuxier_v10 = SDModelType.create('schAuxier_v10.safetensors [0265299a9d]')
     ghostmix_v20Bakedvae = SDModelType.create('ghostmix_v20Bakedvae.safetensors [e3edb8a26f]',
-        option_payload_overrides={
-            "sd_vae": "Automatic"
-        },)
-    perfectWorld_v4Baked = SDModelType.create('perfectWorld_v4Baked.safetensors [24a393500f]',
         option_payload_overrides={
             "sd_vae": "Automatic"
         },)
@@ -102,36 +93,27 @@ class SDModels:
     class CheckpointNamesGUI:
         REALISTICVISION = 'Realistic Vision v4 - Photorealistic'
         GHOSTMIX = 'Ghost Mix v20 - Anime/Photorealistic'
-        # SARDONYX = 'Sardonyx Redux v20'
-        # AOM3 = 'AbyssOrangeMix3'
         AOM3A1B = 'AbyssOrangeMix3 A1B - Anime/Landscapes'
-        # ANYLORA = 'Any Lora'
         ANYTHINGV3 = 'Anything v3 - Cartoon/Anime/Drawings'
-        # BREAKDRO = 'BreakDro'
         KANPIRO = 'KanpiroMix v20 - Photorealistic'
-        # WALNUTCREAM = 'WalnutCream HerbMix v1'
         SCHAUXIER = 'Sch Auxier v10 - Cartoon/Anime'
-        # PERFECTWORLD = 'Perfect World v4'
         DREAMSHAPER = 'Dream Shaper - Photorealistic/Paintings'
         REVANIMATED = "Rev Animated - Anime/Cartoon/Illustration"
+        MISTOON = "Mistoon v20 - Cartoon/Anime/Drawings"
     
     @staticmethod
     def get_sd_model(checkpoint_name) -> SDModelType:
         # Define a mapping between checkpoint names and their corresponding SDModelType objects
         mapping = {
-            # SDModels.CheckpointNamesGUI.SARDONYX: SDModels.sardonyxREDUX_v20,
-            # SDModels.CheckpointNamesGUI.AOM3: SDModels.abyssorangemix3A0M3_aom3,
             SDModels.CheckpointNamesGUI.AOM3A1B: SDModels.abyssorangemix3A0M3_aom3alb,
-            # SDModels.CheckpointNamesGUI.ANYLORA: SDModels.anyloraCheckpoint_novaeFpl6,
             SDModels.CheckpointNamesGUI.ANYTHINGV3: SDModels.anything_v3_full,
-            # SDModels.CheckpointNamesGUI.BREAKDRO: SDModels.breakdro_11464,
             SDModels.CheckpointNamesGUI.KANPIRO: SDModels.kanpiromix_v20,
-            # SDModels.CheckpointNamesGUI.WALNUTCREAM: SDModels.walnutcreamBlend_herbmixV1,
             SDModels.CheckpointNamesGUI.SCHAUXIER: SDModels.schAuxier_v10,
             SDModels.CheckpointNamesGUI.GHOSTMIX: SDModels.ghostmix_v20Bakedvae,
             SDModels.CheckpointNamesGUI.REALISTICVISION: SDModels.realistic_vision_v40_vae,
             SDModels.CheckpointNamesGUI.DREAMSHAPER: SDModels.dreamshaper_v8_vae,
-            SDModels.CheckpointNamesGUI.REVANIMATED: SDModels.rev_animated_v122
+            SDModels.CheckpointNamesGUI.REVANIMATED: SDModels.rev_animated_v122,
+            SDModels.CheckpointNamesGUI.MISTOON: SDModels.mistoonAnime_v20
         }
         # Retrieve and return the SDModelType object for the given checkpoint name
         return mapping.get(checkpoint_name)

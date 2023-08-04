@@ -1,7 +1,7 @@
 import requests, base64, time, os, io
 from PIL import Image, PngImagePlugin
 from config import SDModelType, PromptPrefix, SD_URL, IMG_DIR as OUTPUT_DIR
-from custom_logging import log, log_function_call
+from custom_logging import logger, log_function_call
 from typing import Dict, Any, List, Tuple, Optional
 import aiohttp, asyncio
 
@@ -24,15 +24,15 @@ def decode_base64_to_image(encoding: str) -> Tuple[Optional[Image.Image], Option
         image = Image.open(io.BytesIO(image_data))
         return image, image_data
     except Exception as e:
-        log.warning(f'Cannot decode image: {e}')
+        logger.warning(f'Cannot decode image: {e}')
         return None, None
 
-def get_metadata(image_data: bytes) -> str:
+def get_image_sd_info(image_data: bytes) -> str:
     png_payload = {"image": "data:image/png;base64," + base64.b64encode(image_data).decode()}
     response = requests.post(url=f'{SD_URL}/sdapi/v1/png-info', json=png_payload)
     return response.json().get("info")
 
-def add_metadata(image: Image.Image, metadata: str) -> Image.Image:
+def add_generation_metadata(image: Image.Image, metadata: str) -> Image.Image:
     pnginfo = PngImagePlugin.PngInfo()
     pnginfo.add_text("parameters", metadata)
 
@@ -49,7 +49,7 @@ def save_image(image: Image.Image) -> None:
     file_path = os.path.join(OUTPUT_DIR, f'{timestr}.png')
     file_path = uniquify(file_path)
     image.save(file_path)
-    log.info(f'Image saved: {file_path}')
+    logger.info(f'Image saved: {file_path}')
 
 def add_prefix_to_prompt(prompt: str, prefix: str) -> str:
     return ", \n\n".join([_ for _ in [prefix, prompt] if _])
@@ -93,7 +93,7 @@ async def get_progress(session):
         current_step = progress_response['state']['sampling_step']
         total_steps = progress_response['state']['sampling_steps']
         current_image = progress_response['current_image']
-        log.info(f"Progress: {as_percentage(progress)}, ETA: {eta:.2f}s, Step: {current_step}/{total_steps}")
+        logger.info(f"Progress: {as_percentage(progress)}, ETA: {eta:.2f}s, Step: {current_step}/{total_steps}")
         return progress, eta, current_step, total_steps, \
                decode_base64_to_image(current_image)[0] if current_image else None
 
@@ -113,6 +113,17 @@ async def generate_image(sd_model: SDModelType, prompt: str, prompt_n: str = Non
     image_base64 = extract_base64(resp['images'][0])
     image, image_data = decode_base64_to_image(image_base64)
 
-    metadata = get_metadata(image_data)
-    image_with_metadata = add_metadata(image, metadata)
-    return image_with_metadata
+    metadata = get_image_sd_info(image_data)
+    image = add_generation_metadata(image, metadata)
+
+    return image
+
+async def mock_generate_image(sd_model: SDModelType, prompt: str, prompt_n: str = None) -> Image.Image:
+    return get_first_image()
+
+def get_first_image():
+    for filename in os.listdir(os.path.join(OUTPUT_DIR)):
+        if filename.endswith('.png'):
+            image_path = os.path.join(os.path.join(OUTPUT_DIR), filename)
+            return Image.open(image_path)
+    return None
