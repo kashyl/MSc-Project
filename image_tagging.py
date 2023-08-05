@@ -3,7 +3,7 @@ from collections import OrderedDict
 from tqdm import tqdm
 from keras.models import load_model
 from huggingface_hub import hf_hub_download
-from PIL import Image, PngImagePlugin
+from PIL import Image, PngImagePlugin, ImageFilter
 from typing import Dict, Tuple, Any
 
 from custom_logging import logger, log_function_call
@@ -204,9 +204,9 @@ class ImageTagger():
         # Filter out all the Nones (corrupted examples)
         batch = list(filter(lambda x: x is not None, batch))
         return batch
-    
-    @staticmethod
-    def _preprocess_image(image: Image.Image) -> np.ndarray:
+
+    def _preprocess_image(self, image: Image.Image) -> np.ndarray:
+        self.event_handler.notify_observers(0.1, "Pre-processing generated image")
         image = image.convert("RGB")    # Converting to "RGB" mode ensures that image has exactly 3 channels
         image = np.array(image)
         image = image[:, :, ::-1]  # RGB->BGR
@@ -272,7 +272,20 @@ class ImageTagger():
 
         return accepted_tags
 
-    def _get_image_tags(self, image: Image.Image) -> Dict[str, Any]:
+    def _calculate_image_tags_weights(self, image_array: np.ndarray):
+        self.event_handler.notify_observers(0.2, "Calculating tag weights")
+        img_tag_weights = self._model(image_array, training=False)   # Use model to get tag weights from image numpy array
+        img_tag_weights = img_tag_weights.numpy()   # Converts the tag weights tensor object into an numpy.ndarray object
+        img_tag_weights = img_tag_weights[0]
+        return img_tag_weights
+    
+    def _get_image_rating(self, img_tags_weights: np.ndarray) -> str:
+        self.event_handler.notify_observers(0.3, "Determining image rating")
+        img_rating_weights = zip(self._tags_rating, img_tags_weights[:4])    # Pair image rating tags with their corresponding weights
+        image_rating = max(img_rating_weights, key=lambda x: x[1])[0]   # Set rating with highest weight as image rating
+        return image_rating
+
+    def _process_and_filter_image_tags(self, img_tags_weights: np.ndarray, img_rating: str) -> Dict[str, Any]:
         """
         Generates a JSON-formatted string representing the tags associated with an input image.
         The tags include an image rating and two categories of tags: general tags and character tags.
@@ -298,27 +311,15 @@ class ImageTagger():
         Example usage:
         tag_text = obj.get_image_tags(image_obj)
         """
-        self.event_handler.notify_observers(0.1, "Pre-processing generated image")
-        image_array = self._preprocess_image(image) # Convert the image to a NumPy array (float and range normalised to [0, 1])
-
-        self.event_handler.notify_observers(0.2, "Calculating tag weights")
-        tag_weights = self._model(image_array, training=False)   # Use model to get tag weights from image numpy array
-        tag_weights = tag_weights.numpy()   # Converts the tag weights tensor object into an numpy.ndarray object
-        tag_weights = tag_weights[0]
-
-        self.event_handler.notify_observers(0.3, "Determining image rating")
-        img_rating_weights = zip(self._tags_rating, tag_weights[:4])    # Pair image rating tags with their corresponding weights
-        image_rating = max(img_rating_weights, key=lambda x: x[1])[0]   # Set rating with highest weight as image rating
-
         # Process general tags (which come after ratings)
         self.event_handler.notify_observers(0.5, "Processing and filtering general tags")
         accepted_general_tags = self._process_tags(
-            tag_weights, len(self._tags_rating), self._tags_general, self._general_tag_threshold,
+            img_tags_weights, len(self._tags_rating), self._tags_general, self._general_tag_threshold,
         )
         self.event_handler.notify_observers(0.7, "Processing and filtering character tags")
         # Process character tags (which come after general tags)
         accepted_character_tags = self._process_tags(
-            tag_weights, len(self._tags_general), self._tags_character, self._character_tag_threshold,
+            img_tags_weights, len(self._tags_general), self._tags_character, self._character_tag_threshold,
         )
 
         accepted_tags = accepted_general_tags | accepted_character_tags # Merge dicts
@@ -328,7 +329,7 @@ class ImageTagger():
             key=lambda x: x[1],     # determine the sort order by the second element (x[1], the value).
             reverse=True)           # sorting should be done in descending order
         ordered_tags_and_values = OrderedDict(sorted_tags_and_values)   # Create an ordered dictionary from the sorted items
-        tags_with_img_rating = {'rating': image_rating, 'tags': ordered_tags_and_values} # Combine image rating tag and general/character tags
+        tags_with_img_rating = {'rating': img_rating, 'tags': ordered_tags_and_values} # Combine image rating tag and general/character tags
 
         if self._debug: logger.info(f"WD14 Tagger: {tags_with_img_rating}")
 
@@ -351,6 +352,9 @@ class ImageTagger():
 
         return image
 
+    def _blur_image(self, img):
+        return img.filter(ImageFilter.GaussianBlur(radius=50))
+
     @log_function_call
     def tag_image(self, image: Image.Image) -> Tuple[Image.Image, str]:
         """
@@ -367,6 +371,12 @@ class ImageTagger():
         tagged_image, tags = img_tagger.tag_image(image)
         """
         self._setup_tagger()
-        img_tags = self._get_image_tags(image)
-        image = self._add_tags_to_image_metadata(image=image, img_tags=img_tags)
-        return image, img_tags
+        image_array = self._preprocess_image(image) # Convert the image to a NumPy array (float and range normalised to [0, 1])
+        img_tag_weights = self._calculate_image_tags_weights(image_array)
+        img_rating = self._get_image_rating(img_tag_weights)
+        if self._is_rating_filtered(img_rating):
+            return self._blur_image(image), {'rating': 'filtered'}
+        else:
+            img_tags = self._process_and_filter_image_tags(img_tag_weights, img_rating)
+            image = self._add_tags_to_image_metadata(image=image, img_tags=img_tags)
+            return image, img_tags

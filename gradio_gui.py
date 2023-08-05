@@ -21,7 +21,7 @@ def update_progress(progress_component: gr.Progress, prog_val: str, prog_msg: st
     :type prog_msg: str
     """
     progress_component(prog_val, desc=prog_msg)
-    #time.sleep(0.01) # Manual Gradio progress bar updates currently seem to need a delay to work
+    #time.sleep(0.01) # Manual Gradio progress bar may need a delay to work?
 
 class GUIProgressObserver:
     def __init__(self, gr_progress):
