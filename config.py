@@ -59,6 +59,17 @@ class SDModelType:
         prompt_prefix = custom_prompt_prefix if custom_prompt_prefix else _default_prefixes
         return SDModelType(option_payload=option_payload, payload=payload, prompt_prefix=prompt_prefix)
 
+class CheckpointNamesGUI:
+    REALISTICVISION = 'Realistic Vision v4 - Photorealistic'
+    GHOSTMIX = 'Ghost Mix v20 - Anime/Photorealistic'
+    AOM3A1B = 'AbyssOrangeMix3 A1B - Anime/Landscapes'
+    ANYTHINGV3 = 'Anything v3 - Cartoon/Anime/Drawings'
+    KANPIRO = 'KanpiroMix v20 - Photorealistic'
+    SCHAUXIER = 'Sch Auxier v10 - Cartoon/Anime'
+    DREAMSHAPER = 'Dream Shaper - Photorealistic/Paintings'
+    REVANIMATED = "Rev Animated - Anime/Cartoon/Illustration"
+    MISTOON = "Mistoon v20 - Cartoon/Anime/Drawings"
+
 class SDModels:
     abyssorangemix3A0M3_aom3alb = SDModelType.create('abyssorangemix3AOM3_aom3a1b.safetensors [5493a0ec49]')
     anything_v3_full = SDModelType.create('anything-v3-full.safetensors [abcafl4e5a]')
@@ -90,30 +101,23 @@ class SDModels:
         })
     rev_animated_v122 = SDModelType.create('revAnimated_v122.safetensors [4199BCDD14]')
 
-    class CheckpointNamesGUI:
-        REALISTICVISION = 'Realistic Vision v4 - Photorealistic'
-        GHOSTMIX = 'Ghost Mix v20 - Anime/Photorealistic'
-        AOM3A1B = 'AbyssOrangeMix3 A1B - Anime/Landscapes'
-        ANYTHINGV3 = 'Anything v3 - Cartoon/Anime/Drawings'
-        KANPIRO = 'KanpiroMix v20 - Photorealistic'
-        SCHAUXIER = 'Sch Auxier v10 - Cartoon/Anime'
-        DREAMSHAPER = 'Dream Shaper - Photorealistic/Paintings'
-        REVANIMATED = "Rev Animated - Anime/Cartoon/Illustration"
-        MISTOON = "Mistoon v20 - Cartoon/Anime/Drawings"
-    
+    @staticmethod
+    def get_checkpoints_names():
+        return [getattr(CheckpointNamesGUI, attr) for attr in dir(CheckpointNamesGUI) if not attr.startswith("__")]
+
     @staticmethod
     def get_sd_model(checkpoint_name) -> SDModelType:
         # Define a mapping between checkpoint names and their corresponding SDModelType objects
         mapping = {
-            SDModels.CheckpointNamesGUI.AOM3A1B: SDModels.abyssorangemix3A0M3_aom3alb,
-            SDModels.CheckpointNamesGUI.ANYTHINGV3: SDModels.anything_v3_full,
-            SDModels.CheckpointNamesGUI.KANPIRO: SDModels.kanpiromix_v20,
-            SDModels.CheckpointNamesGUI.SCHAUXIER: SDModels.schAuxier_v10,
-            SDModels.CheckpointNamesGUI.GHOSTMIX: SDModels.ghostmix_v20Bakedvae,
-            SDModels.CheckpointNamesGUI.REALISTICVISION: SDModels.realistic_vision_v40_vae,
-            SDModels.CheckpointNamesGUI.DREAMSHAPER: SDModels.dreamshaper_v8_vae,
-            SDModels.CheckpointNamesGUI.REVANIMATED: SDModels.rev_animated_v122,
-            SDModels.CheckpointNamesGUI.MISTOON: SDModels.mistoonAnime_v20
+            CheckpointNamesGUI.AOM3A1B: SDModels.abyssorangemix3A0M3_aom3alb,
+            CheckpointNamesGUI.ANYTHINGV3: SDModels.anything_v3_full,
+            CheckpointNamesGUI.KANPIRO: SDModels.kanpiromix_v20,
+            CheckpointNamesGUI.SCHAUXIER: SDModels.schAuxier_v10,
+            CheckpointNamesGUI.GHOSTMIX: SDModels.ghostmix_v20Bakedvae,
+            CheckpointNamesGUI.REALISTICVISION: SDModels.realistic_vision_v40_vae,
+            CheckpointNamesGUI.DREAMSHAPER: SDModels.dreamshaper_v8_vae,
+            CheckpointNamesGUI.REVANIMATED: SDModels.rev_animated_v122,
+            CheckpointNamesGUI.MISTOON: SDModels.mistoonAnime_v20
         }
         # Retrieve and return the SDModelType object for the given checkpoint name
         return mapping.get(checkpoint_name)
