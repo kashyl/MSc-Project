@@ -1,13 +1,11 @@
-import csv, os, json, cv2, torch, numpy as np, pandas as pd, io
-from collections import OrderedDict
-from tqdm import tqdm
+import csv, os, json, cv2, numpy as np, io
 from keras.models import load_model
 from huggingface_hub import hf_hub_download
-from PIL import Image, PngImagePlugin, ImageFilter
-from typing import Dict, Tuple, Any
+from PIL import Image, PngImagePlugin
+from typing import Dict, Any
 
 from custom_logging import logger, log_function_call
-from config import ROOT_DIR
+from shared import ROOT_DIR, EventHandler
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'    # Suppress TensorFlow debug & info (build for CPU optimization etc.)
 
@@ -21,25 +19,9 @@ FILES = ["keras_metadata.pb", "saved_model.pb", "selected_tags.csv"]
 SUB_DIR = "variables"
 SUB_DIR_FILES = ["variables.data-00000-of-00001", "variables.index"]
 CSV_FILE = FILES[-1]
+TAGS_WHITELIST_PATH = os.path.join(ROOT_DIR, 'wd14_tagging', 'tags_whitelist.json')
 
-UNDESIRED_TAGS = {'1girl', '1boy', 'solo', 'no humans'}
-
-class EventHandler():
-    """ For updating progress in the GUI. """
-    def __init__(self):
-        self.observers = []
-
-    def add_observer(self, observer):
-        self.observers.append(observer)
-
-    def remove_observer(self, observer):
-        self.observers.remove(observer)
-
-    def notify_observers(self, progress_val, message):
-        for observer in self.observers:
-            observer.update(progress_val, message)
-
-class ImageTagger():
+class WD14Tagger():
     """
     Parameters:
     - repo_id (str, default=DEFAULT_WD14_TAGGER_REPO): Identifier for the WD14 tagger repository on Hugging Face.
@@ -50,8 +32,6 @@ class ImageTagger():
     - remove_underscores (bool, default=True): If True, replaces underscores with spaces in the output tags.
     - recursive (bool, default=False): If True, searches for images in subfolders recursively.
     - debug (bool, default=True): If True, enables debug logging.
-    - undesired_tags (list, default=UNDESIRED_TAGS): List of undesired tags to remove from the output.
-    - frequency_tags (bool, default=False): If True, shows the frequency of tags for images.
     - force_download (bool, default=False): If True, forces downloading of the WD14 tagger models.
     """
     def __init__(self,
@@ -63,10 +43,7 @@ class ImageTagger():
                  remove_underscores=True,
                  recursive=False,
                  debug=True,
-                 undesired_tags=UNDESIRED_TAGS,
-                 frequency_tags=False,
-                 force_download=False,
-                 content_filter_level=1):
+                 force_download=False):
         
         self._repo_id = repo_id
         self._model_dir = model_dir
@@ -76,43 +53,25 @@ class ImageTagger():
         self._remove_underscores = remove_underscores
         self._recursive = recursive
         self._debug = debug
-        self._undesired_tags = undesired_tags
-        self._frequency_tags = frequency_tags
         self._force_download = force_download
         self._model = None
         self._tags_rating = None
         self._tags_general = None
         self._tags_character = None
-        self._content_filter_level = content_filter_level
-
+        
+        self.whitelisted_tags = None
+        self.tag_rename_mappings = None
         self.event_handler = EventHandler()
 
-    def set_content_filter_level(self, level: int):
-        """
-        Set the content filter level for images.
+    def _load_whitelisted_tags(self):
+        with open(TAGS_WHITELIST_PATH, 'r') as file:
+            data = json.load(file)
+        self.whitelisted_tags = data
 
-        :param level: An integer representing the filter level, where 1 allows only "general" content,
-                    2 allows "general" and "sensitive", 3 allows up to "questionable", and 4 allows all, including "explicit".
-        """
-        self._content_filter_level = level
-
-    def get_content_filter_level(self) -> int:
-        """
-        Get the current content filter level for images.
-
-        :return: An integer representing the current filter level (1 to 4).
-        """
-        return self._content_filter_level
-
-    def _is_rating_filtered(self, rating: str) -> bool:
-        """
-        Check if the given rating is filtered based on the current content filter level.
-
-        :param rating: A string representing the rating of the content, one of "general", "sensitive", "questionable", or "explicit".
-        :return: True if the rating is filtered (i.e., not allowed), False otherwise.
-        """
-        rating_levels = {'general': 1, 'sensitive': 2, 'questionable': 3, 'explicit': 4}
-        return rating_levels[rating] > self._content_filter_level
+    def _load_tags_new_names(self):
+        with open(TAGS_WHITELIST_PATH, 'r') as file:
+            data = json.load(file)
+        self.tag_rename_mappings = data
 
     def _setup_model(self):
         """
@@ -190,8 +149,8 @@ class ImageTagger():
     
     def _setup_tagger(self):
         self.event_handler.notify_observers(0.0, "Initializing WD14 Tagger")
-        if not self._model:
-            self._setup_model()
+        if not self.whitelisted_tags: self._load_whitelisted_tags()
+        if not self._model: self._setup_model()
         if None in [self._tags_rating, self._tags_general, self._tags_character]:
             self._setup_tags_list()
 
@@ -247,7 +206,6 @@ class ImageTagger():
         Behavior:
         - Ignores tags with weights below the given threshold.
         - Replaces underscores in tag names with spaces, except for certain patterns like emojis (e.g., "^_^").
-        - Omits any undesired tags specified in self.undesired_tags.
         - Rounds the weights to two decimal places.
 
         Example usage:
@@ -261,11 +219,11 @@ class ImageTagger():
 
             tag_name = tag_names[i]
 
+            if tag_name not in self.whitelisted_tags: 
+                continue
+
             if self._remove_underscores and len(tag_name) > 3:   # Remove undescores except for emojis e.g., ^_^, U_U
                 tag_name = tag_name.replace("_", " ")
-
-            if tag_name in self._undesired_tags: # Ignore undesired tags
-                continue
 
             weight = round(float(weight), 2)    # Convert float32 to standard floats and round to two decimal places
             accepted_tags[tag_name] = weight    # Create dict of tag names and rounded weights
@@ -286,57 +244,23 @@ class ImageTagger():
         return image_rating
 
     def _process_and_filter_image_tags(self, img_tags_weights: np.ndarray, img_rating: str) -> Dict[str, Any]:
-        """
-        Generates a JSON-formatted string representing the tags associated with an input image.
-        The tags include an image rating and two categories of tags: general tags and character tags.
-
-        Parameters:
-        - image (Image): The input image object to be analyzed.
-
-        Returns:
-        - str: A JSON-formatted string containing the image rating and associated tags.
-            The returned JSON object has two keys: 'rating' (a string representing the image rating)
-            and 'tags' (a dictionary containing sorted general and character tags, weighted by significance).
-
-        Steps:
-        1. Convert the image to a NumPy array of float32 values normalized to the range [0, 1].
-        2. Use a pre-trained model to compute tag weights from the image array.
-        3. Determine the image rating by selecting the tag with the highest weight from the first four tags.
-        4. Process the general and character tags using the process_tags method.
-        5. Merge the dictionaries containing the accepted general and character tags.
-        6. Sort the merged tags by weight in descending order.
-        7. Combine the sorted tags and image rating into a single dictionary.
-        8. Convert the dictionary to a JSON-formatted string.
-
-        Example usage:
-        tag_text = obj.get_image_tags(image_obj)
-        """
-        # Process general tags (which come after ratings)
-        self.event_handler.notify_observers(0.5, "Processing and filtering general tags")
-        accepted_general_tags = self._process_tags(
+        self.event_handler.notify_observers(0.5, "Processing and filtering tags")
+        
+        accepted_tags = self._process_tags(
             img_tags_weights, len(self._tags_rating), self._tags_general, self._general_tag_threshold,
         )
-        self.event_handler.notify_observers(0.7, "Processing and filtering character tags")
-        # Process character tags (which come after general tags)
-        accepted_character_tags = self._process_tags(
-            img_tags_weights, len(self._tags_general), self._tags_character, self._character_tag_threshold,
-        )
 
-        accepted_tags = accepted_general_tags | accepted_character_tags # Merge dicts
+        # Sort the tags by weights and create a list of tuples
+        sorted_tags_and_values = sorted(accepted_tags.items(), key=lambda x: x[1], reverse=True)  
 
-        sorted_tags_and_values = sorted(    # Sort the tags by weights, creating a sorted list of tuples, e.g. [('c', 15), ('a', 10), ('b', 5)]
-            accepted_tags.items(),  # Convert the dictionary into a sequence of (key, value) pairs
-            key=lambda x: x[1],     # determine the sort order by the second element (x[1], the value).
-            reverse=True)           # sorting should be done in descending order
-        ordered_tags_and_values = OrderedDict(sorted_tags_and_values)   # Create an ordered dictionary from the sorted items
-        tags_with_img_rating = {'rating': img_rating, 'tags': ordered_tags_and_values} # Combine image rating tag and general/character tags
+        tags_with_img_rating = {'rating': img_rating, 'tags': sorted_tags_and_values}
 
         if self._debug: logger.info(f"WD14 Tagger: {tags_with_img_rating}")
 
         return tags_with_img_rating
 
-    def _add_tags_to_image_metadata(self, image: Image.Image, img_tags: Dict):
-        img_tags_json = json.dumps(img_tags)  # Convert the ordered dictionary to a JSON-formatted string
+    def _add_tags_to_image_metadata(self, image: Image.Image, img_tags):
+        img_tags_json = json.dumps(img_tags)  # Convert the tags to a JSON-formatted string
         self.event_handler.notify_observers(0.8, "Adding tags to image metadata")
         pnginfo = PngImagePlugin.PngInfo()  # Create a PngInfo object
 
@@ -352,11 +276,8 @@ class ImageTagger():
 
         return image
 
-    def _blur_image(self, img):
-        return img.filter(ImageFilter.GaussianBlur(radius=50))
-
     @log_function_call
-    def tag_image(self, image: Image.Image) -> Tuple[Image.Image, str]:
+    def tag_image(self, image: Image.Image):
         """
         Parameters:
         - image (Image.Image): The input image that needs to be tagged.
@@ -374,9 +295,7 @@ class ImageTagger():
         image_array = self._preprocess_image(image) # Convert the image to a NumPy array (float and range normalised to [0, 1])
         img_tag_weights = self._calculate_image_tags_weights(image_array)
         img_rating = self._get_image_rating(img_tag_weights)
-        if self._is_rating_filtered(img_rating):
-            return self._blur_image(image), {'rating': 'filtered'}
-        else:
-            img_tags = self._process_and_filter_image_tags(img_tag_weights, img_rating)
-            image = self._add_tags_to_image_metadata(image=image, img_tags=img_tags)
-            return image, img_tags
+        img_tags = self._process_and_filter_image_tags(img_tag_weights, img_rating)
+        image = self._add_tags_to_image_metadata(image=image, img_tags=img_tags)
+
+        return image, img_tags

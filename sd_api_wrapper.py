@@ -1,9 +1,9 @@
 import requests, base64, time, os, io
 from PIL import Image, PngImagePlugin
-from config import SDModelType, PromptPrefix, SD_URL, IMG_DIR as OUTPUT_DIR
+from shared import SDModelType, PromptPrefix, SD_URL, IMG_DIR as OUTPUT_DIR
 from custom_logging import logger, log_function_call
 from typing import Dict, Any, List, Tuple, Optional
-import aiohttp, asyncio
+import aiohttp
 
 def uniquify(path: str) -> str:
     filename, extension = os.path.splitext(path)
