@@ -5,7 +5,7 @@ from typing import Dict, Optional, Any
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 IMG_DIR = os.path.join(ROOT_DIR, 'img')
 SD_URL = "http://127.0.0.1:7860"
-RANDOM_MODEL_OPT_STRING = 'Select a model at random for each generation'
+RANDOM_MODEL_OPT_STRING = 'Select at random for each generation'
 
 class ImageRatings():
     GENERAL = 'general'

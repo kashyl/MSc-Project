@@ -18,17 +18,20 @@ class GradioUI:
         with ObserverContext(self.app.event_handler, GUIProgressObserver(gr_progress)):
             self.app.generate_round(prompt, sd_model)
 
-        img = self.app.get_current_image()
-        tags = self.app.get_current_tags()
+        img = self.app.image
+        tags = self.app.image_tags
 
         return img, self.ui_update_tags(tags)
 
     def ui_update_tags(self, image_tags):
-        return gr.CheckboxGroup.update(
-            choices=[tag for tag, weight in image_tags], 
-            visible=True,
-            interactive=True
-        )
+        try:
+            return gr.CheckboxGroup.update(
+                choices=[tag for tag, weight in image_tags], 
+                visible=True,
+                interactive=True
+            )
+        except ValueError as e:
+            raise ValueError(f'{e}\nimage_tags parameter value: {image_tags}')
 
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:

@@ -1,8 +1,8 @@
-import csv, os, json, cv2, numpy as np, io
+import csv, os, json, cv2, numpy as np, io, random
 from keras.models import load_model
 from huggingface_hub import hf_hub_download
 from PIL import Image, PngImagePlugin
-from typing import Dict, Any
+from typing import Dict, Any, Tuple, List
 
 from custom_logging import logger, log_function_call
 from shared import ROOT_DIR, EventHandler
@@ -20,6 +20,7 @@ SUB_DIR = "variables"
 SUB_DIR_FILES = ["variables.data-00000-of-00001", "variables.index"]
 CSV_FILE = FILES[-1]
 TAGS_WHITELIST_PATH = os.path.join(ROOT_DIR, 'wd14_tagging', 'tags_whitelist.json')
+TAGS_RENAME_MAP_PATH = os.path.join(ROOT_DIR, 'wd14_tagging', 'tags_renaming.json')
 
 class WD14Tagger():
     """
@@ -63,15 +64,54 @@ class WD14Tagger():
         self.tag_rename_mappings = None
         self.event_handler = EventHandler()
 
+        self._all_tags_weights = None
+        self._image_tags = None
+        self._image_rating = None
+
+    def all_tags_weights(self):
+        return self._all_tags_weights
+
+    def _set_all_tags_weights(self, value):
+        self._all_tags_weights = value
+
+    @property
+    def image_tags(self):
+        return self._image_tags
+
+    def _set_image_tags(self, value):
+        self._image_tags = value
+
+    def _set_image(self, value):
+        self._image = value
+
+    @property
+    def image_rating(self):
+        return self._image_rating
+
+    def _set_image_rating(self, value):
+        self._image_rating = value
+
+    @property
+    def image_rating_and_tags(self):
+        return {'rating': self.image_rating, 'tags': self.image_tags}
+
     def _load_whitelisted_tags(self):
         with open(TAGS_WHITELIST_PATH, 'r') as file:
             data = json.load(file)
         self.whitelisted_tags = data
 
-    def _load_tags_new_names(self):
-        with open(TAGS_WHITELIST_PATH, 'r') as file:
+    def _load_tags_rename_mappings(self):
+        with open(TAGS_RENAME_MAP_PATH, 'r') as file:
             data = json.load(file)
         self.tag_rename_mappings = data
+
+    def apply_tags_rename_mappings(self, tags_and_weights: List[Tuple[str, int]]):
+        renamed_tags = []
+        for tup in tags_and_weights:
+            str_val, float_val = tup
+            new_str = self.tag_rename_mappings.get(str_val, str_val)  # Get the new string value or keep the old one
+            renamed_tags.append((new_str, float_val))
+        return renamed_tags
 
     def _setup_model(self):
         """
@@ -150,21 +190,14 @@ class WD14Tagger():
     def _setup_tagger(self):
         self.event_handler.notify_observers(0.0, "Initializing WD14 Tagger")
         if not self.whitelisted_tags: self._load_whitelisted_tags()
+        if not self.tag_rename_mappings: self._load_tags_rename_mappings()
         if not self._model: self._setup_model()
         if None in [self._tags_rating, self._tags_general, self._tags_character]:
             self._setup_tags_list()
-
-    @staticmethod
-    def _collate_fn_remove_corrupted(batch):
-        """Collate function that allows to remove corrupted examples in the
-        dataloader. It expects that the dataloader returns 'None' when that occurs.
-        The 'None's in the batch are removed.
-        """
-        # Filter out all the Nones (corrupted examples)
-        batch = list(filter(lambda x: x is not None, batch))
-        return batch
+        self._clear_tags_and_rating()
 
     def _preprocess_image(self, image: Image.Image) -> np.ndarray:
+        """Convert the image to a NumPy array (float and range normalised to [0, 1])"""
         self.event_handler.notify_observers(0.1, "Pre-processing generated image")
         image = image.convert("RGB")    # Converting to "RGB" mode ensures that image has exactly 3 channels
         image = np.array(image)
@@ -187,30 +220,7 @@ class WD14Tagger():
         return image
 
     def _process_tags(self, tag_weights, start_index, tag_names, threshold) -> Dict[str, float]:
-        """
-        Processes a set of tags based on their weights, applying certain filters and thresholds.
-        This function is responsible for filtering out undesired tags, replacing underscores in tags,
-        rounding the weights to two decimal places, and constructing a dictionary of accepted tag names
-        and weights.
-
-        Parameters:
-        - tag_weights (array-like): The weights associated with each tag, likely obtained from a trained model.
-        - start_index (int): The starting index in tag_weights from which to process the tags.
-        - tag_names (list): A list of tag names corresponding to the weights in tag_weights.
-        - threshold (float): The minimum acceptable weight for a tag to be included in the result.
-
-        Returns:
-        - Dict[str, float]: A dictionary containing the accepted tags and their corresponding weights,
-                            filtered, formatted, and sorted based on the given criteria.
-
-        Behavior:
-        - Ignores tags with weights below the given threshold.
-        - Replaces underscores in tag names with spaces, except for certain patterns like emojis (e.g., "^_^").
-        - Rounds the weights to two decimal places.
-
-        Example usage:
-        accepted_general_tags = obj.process_tags(tag_weights, 0, general_tag_names, 0.5)
-        """
+        """Processes tags based on their weights, applying certain filters and thresholds."""
         accepted_tags = {}
 
         for i, weight in enumerate(tag_weights[start_index:]):
@@ -218,7 +228,8 @@ class WD14Tagger():
             if weight < threshold: continue
 
             tag_name = tag_names[i]
-
+            
+            # Filter out any tags that are not in the whitelist
             if tag_name not in self.whitelisted_tags: 
                 continue
 
@@ -230,37 +241,36 @@ class WD14Tagger():
 
         return accepted_tags
 
-    def _calculate_image_tags_weights(self, image_array: np.ndarray):
+    def _calculate_tags_weights(self, image_array: np.ndarray):
         self.event_handler.notify_observers(0.2, "Calculating tag weights")
-        img_tag_weights = self._model(image_array, training=False)   # Use model to get tag weights from image numpy array
-        img_tag_weights = img_tag_weights.numpy()   # Converts the tag weights tensor object into an numpy.ndarray object
-        img_tag_weights = img_tag_weights[0]
-        return img_tag_weights
-    
-    def _get_image_rating(self, img_tags_weights: np.ndarray) -> str:
-        self.event_handler.notify_observers(0.3, "Determining image rating")
-        img_rating_weights = zip(self._tags_rating, img_tags_weights[:4])    # Pair image rating tags with their corresponding weights
-        image_rating = max(img_rating_weights, key=lambda x: x[1])[0]   # Set rating with highest weight as image rating
-        return image_rating
+        all_tag_weights = self._model(image_array, training=False)   # Use model to get tag weights from image numpy array
+        all_tag_weights = all_tag_weights.numpy()   # Converts the tag weights tensor object into an numpy.ndarray object
+        all_tag_weights = all_tag_weights[0]
 
-    def _process_and_filter_image_tags(self, img_tags_weights: np.ndarray, img_rating: str) -> Dict[str, Any]:
+        self._set_all_tags_weights(all_tag_weights)
+    
+    def _determine_image_rating(self) -> str:
+        self.event_handler.notify_observers(0.3, "Determining image rating")
+        img_rating_weights = zip(self._tags_rating, self._all_tags_weights[:4])    # Pair image rating tags with their corresponding weights
+        image_rating = max(img_rating_weights, key=lambda x: x[1])[0]   # Set rating with highest weight as image rating
+
+        self._image_rating = image_rating
+
+    def _process_and_filter_image_tags(self):
         self.event_handler.notify_observers(0.5, "Processing and filtering tags")
         
         accepted_tags = self._process_tags(
-            img_tags_weights, len(self._tags_rating), self._tags_general, self._general_tag_threshold,
+            self._all_tags_weights, len(self._tags_rating), self._tags_general, self._general_tag_threshold,
         )
-
         # Sort the tags by weights and create a list of tuples
-        sorted_tags_and_values = sorted(accepted_tags.items(), key=lambda x: x[1], reverse=True)  
+        sorted_tags_and_weights = sorted(accepted_tags.items(), key=lambda x: x[1], reverse=True)  
 
-        tags_with_img_rating = {'rating': img_rating, 'tags': sorted_tags_and_values}
+        self._set_image_tags(sorted_tags_and_weights)
 
-        if self._debug: logger.info(f"WD14 Tagger: {tags_with_img_rating}")
+        if self._debug: logger.info(f"WD14 Tagger: {self.image_rating_and_tags}")
 
-        return tags_with_img_rating
-
-    def _add_tags_to_image_metadata(self, image: Image.Image, img_tags):
-        img_tags_json = json.dumps(img_tags)  # Convert the tags to a JSON-formatted string
+    def add_wd14_metadata_to_image(self, image: Image.Image) -> Image.Image:
+        img_tags_json = json.dumps(self.image_tags)  # Convert the tags to a JSON-formatted string
         self.event_handler.notify_observers(0.8, "Adding tags to image metadata")
         pnginfo = PngImagePlugin.PngInfo()  # Create a PngInfo object
 
@@ -276,8 +286,67 @@ class WD14Tagger():
 
         return image
 
+    def _clear_tags_and_rating(self):
+        self._all_tags_weights = None
+        self._image_tags = None
+        self._image_rating = None
+
+    def get_random_false_tags(self, count: int) -> List[Tuple[str, int]]:
+        """
+        Generate a list of unique tuples with renamed tags and their associated weights.
+        
+        This function works in the following steps:
+        1. Pre-filters the _all_tags_weights list to include only those tags that are in whitelisted_tags.
+        2. Randomly selects tags from the whitelisted_tags list, ensuring previously sampled tags are not re-selected.
+        3. Renames the tags according to the rename_mapping.
+        4. Adds the renamed tag and its weight to the result, ensuring that:
+            - The renamed tag doesn't already exist in _image_tags.
+            - The resulting tuple is unique.
+        5. Repeats the process until the desired number of tuples (specified by 'count') is obtained or all tags are processed.
+
+        Parameters:
+        - count (int): The number of unique tuples to generate.
+
+        Returns:
+        - list of tuples: A list containing unique tuples of the form (renamed_tag, weight).
+
+        Note:
+        - If the desired count can't be achieved (for instance, if there aren't enough tags in whitelisted_tags or too many tags 
+            are already in _image_tags), the function might return fewer tuples than requested.
+        """
+        result_tuples = set()
+        already_sampled_tags = set()
+        
+        # Pre-filtered list to improve efficiency
+        filtered_tags_weights = [t for t in self._all_tags_weights if t[0] in self.whitelisted_tags]
+        
+        # As long as we don't have enough result tuples
+        while len(result_tuples) < count:
+            remaining_tags = [tag for tag in self.whitelisted_tags if tag not in already_sampled_tags]
+            
+            # If there are no more remaining tags, you might need to reconsider the approach or inputs
+            if not remaining_tags:
+                break
+            
+            # Shuffle the remaining tags and chunk them
+            random.shuffle(remaining_tags)
+            chunk = remaining_tags[:count - len(result_tuples)]
+            
+            # Add to already sampled set
+            already_sampled_tags.update(chunk)
+            
+            temp_tuples = [t for t in filtered_tags_weights if t[0] in chunk]
+
+            for t in temp_tuples:
+                renamed_tag = self.apply_tags_rename_mappings(t[0])
+                
+                if renamed_tag not in self._image_tags and (renamed_tag, t[1]) not in result_tuples:
+                    result_tuples.add((renamed_tag, t[1]))
+
+        return list(result_tuples)
+
     @log_function_call
-    def tag_image(self, image: Image.Image):
+    def generate_tags(self, image: Image.Image):
         """
         Parameters:
         - image (Image.Image): The input image that needs to be tagged.
@@ -292,10 +361,8 @@ class WD14Tagger():
         tagged_image, tags = img_tagger.tag_image(image)
         """
         self._setup_tagger()
-        image_array = self._preprocess_image(image) # Convert the image to a NumPy array (float and range normalised to [0, 1])
-        img_tag_weights = self._calculate_image_tags_weights(image_array)
-        img_rating = self._get_image_rating(img_tag_weights)
-        img_tags = self._process_and_filter_image_tags(img_tag_weights, img_rating)
-        image = self._add_tags_to_image_metadata(image=image, img_tags=img_tags)
-
-        return image, img_tags
+        image_array = self._preprocess_image(image) 
+        self._calculate_tags_weights(image_array)
+        self._determine_image_rating()
+        self._process_and_filter_image_tags()
+        self._set_image_tags(self.apply_tags_rename_mappings(self.image_tags))
