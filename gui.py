@@ -19,9 +19,9 @@ class GradioUI:
             self.app.generate_round(prompt, sd_model)
 
         img = self.app.image
-        tags = self.app.image_tags
+        tags = self.app.tags_to_display
 
-        return img, self.ui_update_tags(tags)
+        return self.ui_update_image(img), self.ui_update_tags(tags)
 
     def ui_update_tags(self, image_tags):
         try:
@@ -32,6 +32,9 @@ class GradioUI:
             )
         except ValueError as e:
             raise ValueError(f'{e}\nimage_tags parameter value: {image_tags}')
+        
+    def ui_update_image(self, image):
+        return gr.Image.update(value=image, label='AI Generated Image', show_share_button=True)
 
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
@@ -41,10 +44,13 @@ class GradioUI:
                 with gr.Row():
                     custom_prompt = gr.Textbox('whale on deep blue sky, white birds, star, thick clouds', label='Custom prompt')
                     generate_btn = gr.Button("Generate Question")
-                with gr.Row():
-                    with gr.Box():
-                        generated_image = gr.Image(label='AI Generated Image', elem_id='generated-image', show_share_button=True)
-                    image_tags = gr.CheckboxGroup(choices=None, label="Tags", info="info message", interactive=True, visible=False)
+                with gr.Box():
+                    with gr.Row():
+                        with gr.Column():
+                            generated_image = gr.Image(elem_id='generated-image', label='Click the button to generate an image!')
+                            with gr.Accordion('Generation info', visible=False):
+                                gr.Markdown(value='a')
+                        image_tags = gr.CheckboxGroup(choices=None, label="Tags", info="info message", interactive=True, visible=False)
 
             with gr.Tab(label='Settings'):
                 with gr.Row():

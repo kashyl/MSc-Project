@@ -2,7 +2,7 @@ import csv, os, json, cv2, numpy as np, io, random
 from keras.models import load_model
 from huggingface_hub import hf_hub_download
 from PIL import Image, PngImagePlugin
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Union
 
 from custom_logging import logger, log_function_call
 from shared import ROOT_DIR, EventHandler
@@ -41,7 +41,7 @@ class WD14Tagger():
                  batch_size=8,
                  general_tag_threshold=0.35,
                  character_tag_threshold=0.35,
-                 remove_underscores=True,
+                 remove_underscores_setting=True,
                  recursive=False,
                  debug=True,
                  force_download=False):
@@ -51,27 +51,25 @@ class WD14Tagger():
         self._batch_size = batch_size
         self._general_tag_threshold = general_tag_threshold
         self._character_tag_threshold = character_tag_threshold
-        self._remove_underscores = remove_underscores
+        self._remove_underscores_setting = remove_underscores_setting
         self._recursive = recursive
         self._debug = debug
         self._force_download = force_download
         self._model = None
         self._tags_rating = None
         self._tags_general = None
-        self._tags_character = None
         
         self.whitelisted_tags = None
         self.tag_rename_mappings = None
         self.event_handler = EventHandler()
 
         self._all_tags_weights = None
+        self._all_general_tags_names_and_weights = None
         self._image_tags = None
         self._image_rating = None
+        self._random_false_tags = None
 
-    def all_tags_weights(self):
-        return self._all_tags_weights
-
-    def _set_all_tags_weights(self, value):
+    def _set_all_tags_weights_list(self, value):
         self._all_tags_weights = value
 
     @property
@@ -92,6 +90,13 @@ class WD14Tagger():
         self._image_rating = value
 
     @property
+    def random_false_tags(self):
+        return self._random_false_tags
+    
+    def _set_random_false_tags(self, value):
+        self._random_false_tags = value
+
+    @property
     def image_rating_and_tags(self):
         return {'rating': self.image_rating, 'tags': self.image_tags}
 
@@ -105,7 +110,7 @@ class WD14Tagger():
             data = json.load(file)
         self.tag_rename_mappings = data
 
-    def apply_tags_rename_mappings(self, tags_and_weights: List[Tuple[str, int]]):
+    def apply_tags_rename_mappings(self, tags_and_weights: List[Tuple[str, float]]):
         renamed_tags = []
         for tup in tags_and_weights:
             str_val, float_val = tup
@@ -185,14 +190,14 @@ class WD14Tagger():
 
         self._tags_rating = [row[1] for row in rows[0:] if row[2] == "9"]
         self._tags_general = [row[1] for row in rows[1:] if row[2] == "0"]
-        self._tags_character = [row[1] for row in rows[1:] if row[2] == "4"]
+        # self._tags_character = [row[1] for row in rows[1:] if row[2] == "4"]
     
     def _setup_tagger(self):
         self.event_handler.notify_observers(0.0, "Initializing WD14 Tagger")
         if not self.whitelisted_tags: self._load_whitelisted_tags()
         if not self.tag_rename_mappings: self._load_tags_rename_mappings()
         if not self._model: self._setup_model()
-        if None in [self._tags_rating, self._tags_general, self._tags_character]:
+        if None in [self._tags_rating, self._tags_general]:
             self._setup_tags_list()
         self._clear_tags_and_rating()
 
@@ -218,37 +223,70 @@ class WD14Tagger():
         image = np.expand_dims(image, axis=0)   # Expand dimensions to create a batch with a single image
 
         return image
+        
+    def _remove_underscores(self, input_data: Union[str, List[str], List[Tuple[str, float]]]) -> Union[str, List[str], List[Tuple[str, float]]]:
+        """
+        Removes underscores from input data. The function can handle string, list of strings and list of tuples.
+        
+        Parameters:
+        input_data (Union[str, List[str], List[Tuple[str, float]]]): A string or a list of strings or list of tuples (str, float)
+        
+        Returns:
+        Union[str, List[str], List[Tuple[str, float]]]: The input_data with underscores removed from strings
+        """
+        if not self._remove_underscores_setting: 
+            return input_data
+        
+        def remove_from_string(tag_name: str) -> str:
+            if len(tag_name) > 3:  # Remove undescores except for emojis e.g., ^_^, U_U
+                return tag_name.replace("_", " ")
+            return tag_name
+        
+        if isinstance(input_data, str):
+            return remove_from_string(input_data)
+        
+        elif isinstance(input_data, list):
+            if all(isinstance(i, str) for i in input_data):
+                return [remove_from_string(tag_name) for tag_name in input_data]
+            elif all(isinstance(i, tuple) and len(i) == 2 for i in input_data):
+                return [(remove_from_string(tag_name), weight) for tag_name, weight in input_data]
+        else:
+            raise TypeError(f"Unsupported input type: {type(input_data)}")
 
-    def _process_tags(self, tag_weights, start_index, tag_names, threshold) -> Dict[str, float]:
+        return input_data
+
+    def _process_tags(self, threshold) -> [str, float]:
         """Processes tags based on their weights, applying certain filters and thresholds."""
         accepted_tags = {}
 
-        for i, weight in enumerate(tag_weights[start_index:]):
-            if i >= len(tag_names): break
-            if weight < threshold: continue
+        for tag_name, weight in self._all_general_tags_names_and_weights:
+            if weight < threshold: 
+                continue
 
-            tag_name = tag_names[i]
-            
             # Filter out any tags that are not in the whitelist
             if tag_name not in self.whitelisted_tags: 
                 continue
 
-            if self._remove_underscores and len(tag_name) > 3:   # Remove undescores except for emojis e.g., ^_^, U_U
-                tag_name = tag_name.replace("_", " ")
+            tag_name = self._remove_underscores(tag_name)
 
-            weight = round(float(weight), 2)    # Convert float32 to standard floats and round to two decimal places
-            accepted_tags[tag_name] = weight    # Create dict of tag names and rounded weights
+            accepted_tags[tag_name] = weight  # Create dict of tag names and weights
 
         return accepted_tags
 
     def _calculate_tags_weights(self, image_array: np.ndarray):
         self.event_handler.notify_observers(0.2, "Calculating tag weights")
-        all_tag_weights = self._model(image_array, training=False)   # Use model to get tag weights from image numpy array
-        all_tag_weights = all_tag_weights.numpy()   # Converts the tag weights tensor object into an numpy.ndarray object
-        all_tag_weights = all_tag_weights[0]
+        all_tag_weights_list = self._model(image_array, training=False)   # Use model to get tag weights from image numpy array
+        all_tag_weights_list = all_tag_weights_list.numpy()   # Converts the tag weights tensor object into an numpy.ndarray object
+        all_tag_weights_list = all_tag_weights_list[0]
 
-        self._set_all_tags_weights(all_tag_weights)
-    
+        # Convert float32 to standard floats and round to two decimal places
+        rounded_weights = [round(float(weight), 2) for weight in all_tag_weights_list]
+
+        self._set_all_tags_weights_list(rounded_weights)
+
+    def _zip_general_tags_names_and_weights(self):
+        self._all_general_tags_names_and_weights = list(zip(self._tags_general, self._all_tags_weights[4:]))
+
     def _determine_image_rating(self) -> str:
         self.event_handler.notify_observers(0.3, "Determining image rating")
         img_rating_weights = zip(self._tags_rating, self._all_tags_weights[:4])    # Pair image rating tags with their corresponding weights
@@ -259,9 +297,8 @@ class WD14Tagger():
     def _process_and_filter_image_tags(self):
         self.event_handler.notify_observers(0.5, "Processing and filtering tags")
         
-        accepted_tags = self._process_tags(
-            self._all_tags_weights, len(self._tags_rating), self._tags_general, self._general_tag_threshold,
-        )
+        accepted_tags = self._process_tags(self._general_tag_threshold)
+
         # Sort the tags by weights and create a list of tuples
         sorted_tags_and_weights = sorted(accepted_tags.items(), key=lambda x: x[1], reverse=True)  
 
@@ -270,7 +307,7 @@ class WD14Tagger():
         if self._debug: logger.info(f"WD14 Tagger: {self.image_rating_and_tags}")
 
     def add_wd14_metadata_to_image(self, image: Image.Image) -> Image.Image:
-        img_tags_json = json.dumps(self.image_tags)  # Convert the tags to a JSON-formatted string
+        img_tags_json = json.dumps(self.image_rating_and_tags)  # Convert the tags to a JSON-formatted string
         self.event_handler.notify_observers(0.8, "Adding tags to image metadata")
         pnginfo = PngImagePlugin.PngInfo()  # Create a PngInfo object
 
@@ -290,8 +327,9 @@ class WD14Tagger():
         self._all_tags_weights = None
         self._image_tags = None
         self._image_rating = None
+        self._random_false_tags = None
 
-    def get_random_false_tags(self, count: int) -> List[Tuple[str, int]]:
+    def generate_random_false_tags(self, count: int) -> List[Tuple[str, float]]:
         """
         Generate a list of unique tuples with renamed tags and their associated weights.
         
@@ -318,7 +356,7 @@ class WD14Tagger():
         already_sampled_tags = set()
         
         # Pre-filtered list to improve efficiency
-        filtered_tags_weights = [t for t in self._all_tags_weights if t[0] in self.whitelisted_tags]
+        filtered_tags_weights = [t for t in self._all_general_tags_names_and_weights if t[0] in self.whitelisted_tags]
         
         # As long as we don't have enough result tuples
         while len(result_tuples) < count:
@@ -338,12 +376,18 @@ class WD14Tagger():
             temp_tuples = [t for t in filtered_tags_weights if t[0] in chunk]
 
             for t in temp_tuples:
-                renamed_tag = self.apply_tags_rename_mappings(t[0])
-                
-                if renamed_tag not in self._image_tags and (renamed_tag, t[1]) not in result_tuples:
-                    result_tuples.add((renamed_tag, t[1]))
+                renamed_tag = self.apply_tags_rename_mappings([t])
+                renamed_tag = renamed_tag[0]
 
-        return list(result_tuples)
+                if renamed_tag not in self._image_tags and (renamed_tag, t[1]) not in result_tuples:
+                    result_tuples.add(renamed_tag)
+
+        result_tuples = list(result_tuples) # set to list
+        result_tuples = self._remove_underscores(result_tuples) # update with new names
+
+        self._set_random_false_tags(result_tuples)
+
+        if self._debug: logger.info(f"False tags: {self.random_false_tags}")
 
     @log_function_call
     def generate_tags(self, image: Image.Image):
@@ -363,6 +407,7 @@ class WD14Tagger():
         self._setup_tagger()
         image_array = self._preprocess_image(image) 
         self._calculate_tags_weights(image_array)
+        self._zip_general_tags_names_and_weights()
         self._determine_image_rating()
         self._process_and_filter_image_tags()
         self._set_image_tags(self.apply_tags_rename_mappings(self.image_tags))

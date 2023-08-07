@@ -11,7 +11,6 @@ from content_filter import ContentFilter
 class App:
     def __init__(self):
         self._image = None
-        self._image_false_tags = None
 
         self.event_handler = EventHandler()
         self.wd14_tagger = WD14Tagger()
@@ -78,12 +77,18 @@ class App:
         return self.wd14_tagger.image_rating_and_tags
 
     @property
+    def false_tags(self):
+        return self.wd14_tagger.random_false_tags
+
+    @property
     def image(self):
         return self._image
 
     @property
-    def image_false_tags(self, count: int):
-        false_tags = self.wd14_tagger.get_random_false_tags(count)
+    def tags_to_display(self):
+        combined_tags = self.image_tags + self.false_tags
+        random.shuffle(combined_tags)
+        return combined_tags
 
     def generate_round(self, prompt: str, checkpoint: str):
         self._set_image(self._generate_image(prompt, checkpoint))
@@ -95,3 +100,5 @@ class App:
         if self.content_filter.is_rating_filtered(self.image_rating):
             self._set_image(self.content_filter.get_blurred_image(self.image))
             print('oh no!') # TODO
+
+        self.wd14_tagger.generate_random_false_tags(5)  # TODO: count
