@@ -1,22 +1,40 @@
-import asyncio, aiohttp, random
+import asyncio, aiohttp, random, re
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 
-from sd_api_wrapper import mock_generate_image as sd_generate_image, get_progress
+from sd_api_wrapper import generate_image as sd_generate_image, get_progress, mock_generate_image
 from shared import SDModels, EventHandler, RANDOM_MODEL_OPT_STRING, ObserverContext
 from wd14_tagging.wd14_tagging import WD14Tagger
 from content_filter import ContentFilter
 
+DEBUG_MOCK_GEN_INFO = [
+    'Steps: 30',
+    'Sampler: DPM++ 2M Karras',
+    'CFG scale: 7.0',
+    'Seed: 2929592300',
+    'Size: 512x512',
+    'Model hash: 40d4f9d626',
+    'Model: sardonyxREDUX_v20',
+    'Seed resize from: -1x-1',
+    'Denoising strength: 0.45',
+    'Clip skip: 2',
+    'Version: v1.2.0'
+]
 
 class App:
-    def __init__(self):
+    def __init__(self, debug_mock_image=False, debug_mock_tags=False):
         self._image = None
+        self._image_gen_info = None
 
         self.event_handler = EventHandler()
         self.wd14_tagger = WD14Tagger()
         self.content_filter = ContentFilter()
 
-    def _generate_image(self, prompt: str, sd_model_opt: str):
+        # Set function pointers based on the debug flags
+        self._generate_image_func = self._generate_image if not debug_mock_image else self._mock_gen_image
+        self._generate_tags_func = self._generate_tags if not debug_mock_tags else self._mock_gen_tags
+
+    def _run_sd_generate(self, prompt: str, gui_model_name: str):
         """
         Generates an image based on a specified prompt using a given model checkpoint,
         and periodically reports the progress of the generation.
@@ -29,9 +47,15 @@ class App:
         :return: The generated image with metadata.
         """
         async def inner():
-            self.event_handler.notify_observers(0.0, f'Loading SD checkpoint {sd_model_opt}  ...')
-            sd_model = SDModels.get_sd_model(sd_model_opt) if sd_model_opt != RANDOM_MODEL_OPT_STRING else random.choice(SDModels.get_checkpoints_names())
-
+            sd_model = (
+                SDModels.get_sd_model(gui_model_name) 
+                if gui_model_name != RANDOM_MODEL_OPT_STRING 
+                else SDModels.get_sd_model(
+                    random.choice(SDModels.get_gui_model_names_list())
+                )
+            )
+            self.event_handler.notify_observers(0.0, f'Loading model {SDModels.get_sd_model_name(sd_model)}  ...')
+            
             async with aiohttp.ClientSession() as session:  # Run the async function and wait for it to complete
                 post_task = asyncio.create_task(sd_generate_image(sd_model=sd_model, prompt=prompt))    # Create the POST task for the image request
                 while not post_task.done():
@@ -39,8 +63,8 @@ class App:
                     self.event_handler.notify_observers(progress, f'Generating image - ETA: {eta:.2f}s - Step: {current_step}/{total_steps}')
                     await asyncio.sleep(1)
 
-                image_with_metadata = await post_task   # Get the result of the POST task
-                return image_with_metadata
+                image = await post_task   # Get the result of the POST task
+                return image
 
         def run_async_code():
             loop = asyncio.new_event_loop() # Create a new event loop
@@ -54,16 +78,39 @@ class App:
             future = executor.submit(run_async_code)
             return future.result()
     
-    def _generate_tags(self):
+    def _run_wd14_tagger(self):
         with ObserverContext(self.wd14_tagger.event_handler, self.event_handler.get_latest_observer()):
             self.wd14_tagger.generate_tags(self.image)
 
     def _set_image(self, img: Image.Image):
         self._image = img
 
-    def _set_image_false_tags(self, tags):
-        self._image_false_tags = tags
-    
+    def _set_image_generation_info(self, sd_gen_info):
+        self._image_gen_info = sd_gen_info
+
+    def _extract_image_generation_info(self):
+        data = self.image.info.items()
+        data_string = ' '.join(map(str, data)).strip("')")  # Convert tuple into string
+
+        parameters = [
+            'Steps', 'Sampler', 'CFG scale', 'Seed', 'Size', 
+            'Model hash', 'Model', 'Seed resize from', 
+            'Denoising strength', 'Clip skip', 'Version'
+        ]
+
+        extracted_values = []
+
+        for param in parameters:
+            match = re.search(f'{param}: ([^,]*)', data_string)
+            if match:
+                extracted_values.append(f'{param}: {match.group(1)}')
+
+        self._set_image_generation_info(extracted_values)
+
+    @property
+    def image_gen_info(self):
+        return ', '.join(self._image_gen_info)
+
     @property
     def image_tags(self):
         return self.wd14_tagger.image_tags
@@ -90,10 +137,12 @@ class App:
         random.shuffle(combined_tags)
         return combined_tags
 
-    def generate_round(self, prompt: str, checkpoint: str):
-        self._set_image(self._generate_image(prompt, checkpoint))
+    def _generate_image(self, prompt: str, checkpoint: str):
+        self._set_image(self._run_sd_generate(prompt, checkpoint))
+        self._extract_image_generation_info()
 
-        self._generate_tags()
+    def _generate_tags(self):
+        self._run_wd14_tagger()
         self._set_image(self.wd14_tagger.add_wd14_metadata_to_image(self.image))
 
         self.event_handler.notify_observers(0.9, 'Checking image rating against filters ...')
@@ -102,3 +151,15 @@ class App:
             print('oh no!') # TODO
 
         self.wd14_tagger.generate_random_false_tags(5)  # TODO: count
+
+    def _mock_gen_image(self, *args):
+        self._set_image(mock_generate_image())    # get mock image for debugging
+        self._set_image_generation_info(DEBUG_MOCK_GEN_INFO)
+
+    def _mock_gen_tags(self):
+        self.wd14_tagger.mock_generate_tags()
+        self.wd14_tagger.mock_gen_false_tags()
+
+    def generate_round(self, prompt: str, checkpoint: str):
+        self._generate_image_func(prompt, checkpoint)
+        self._generate_tags_func()

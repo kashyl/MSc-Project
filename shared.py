@@ -1,9 +1,10 @@
-import os
+import os, re
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Any
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 IMG_DIR = os.path.join(ROOT_DIR, 'img')
+MOCK_GEN_IMG_PATH = os.path.join(ROOT_DIR, 'static', 'debug.png')
 SD_URL = "http://127.0.0.1:7860"
 RANDOM_MODEL_OPT_STRING = 'Select at random for each generation'
 
@@ -109,9 +110,9 @@ class CheckpointNamesGUI:
 
 class SDModels:
     abyssorangemix3A0M3_aom3alb = SDModelType.create('abyssorangemix3AOM3_aom3a1b.safetensors [5493a0ec49]')
-    anything_v3_full = SDModelType.create('anything-v3-full.safetensors [abcafl4e5a]')
+    anything_v3_full = SDModelType.create('anything-v3-full.safetensors [abcaf14e5a]')
     mistoonAnime_v20 = SDModelType.create('mistoonAnime_v20.safetensors [c35e1054c0]')
-    kanpiromix_v20 = SDModelType.create('kanpiromix_v20.safetensors [b8cfleaa89]')
+    kanpiromix_v20 = SDModelType.create('kanpiromix_v20.safetensors [b8cf1eaa89]')
     schAuxier_v10 = SDModelType.create('schAuxier_v10.safetensors [0265299a9d]')
     ghostmix_v20Bakedvae = SDModelType.create('ghostmix_v20Bakedvae.safetensors [e3edb8a26f]',
         option_payload_overrides={
@@ -132,18 +133,18 @@ class SDModels:
             negative='(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime), text, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, BadDream'
         )
     )
-    dreamshaper_v8_vae = SDModelType.create('dreamshaper_8.safetensors [879DB523C3]',
+    dreamshaper_v8_vae = SDModelType.create('dreamshaper_8.safetensors [879db523c3]',
         option_payload_overrides={
             "sd_vae": "Automatic"
         })
-    rev_animated_v122 = SDModelType.create('revAnimated_v122.safetensors [4199BCDD14]')
+    rev_animated_v122 = SDModelType.create('revAnimated_v122.safetensors [4199bcdd14]')
 
     @staticmethod
-    def get_checkpoints_names():
+    def get_gui_model_names_list():
         return [getattr(CheckpointNamesGUI, attr) for attr in dir(CheckpointNamesGUI) if not attr.startswith("__")]
 
     @staticmethod
-    def get_sd_model(checkpoint_name) -> SDModelType:
+    def get_sd_model(gui_model_name) -> SDModelType:
         # Define a mapping between checkpoint names and their corresponding SDModelType objects
         mapping = {
             CheckpointNamesGUI.AOM3A1B: SDModels.abyssorangemix3A0M3_aom3alb,
@@ -157,4 +158,13 @@ class SDModels:
             CheckpointNamesGUI.MISTOON: SDModels.mistoonAnime_v20
         }
         # Retrieve and return the SDModelType object for the given checkpoint name
-        return mapping.get(checkpoint_name)
+        return mapping.get(gui_model_name)
+
+    @staticmethod
+    def get_sd_model_name(sd_model: SDModelType):
+        checkpoint_title = sd_model.option_payload['sd_model_checkpoint']
+        match = re.search(r"^(.*?)(\.safetensors|\.ckpt)", checkpoint_title)
+        if match:
+            return match.group(1)
+        else:
+            raise ValueError(f'Could not extract title of model {sd_model}')

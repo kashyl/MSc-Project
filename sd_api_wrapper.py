@@ -1,6 +1,6 @@
 import requests, base64, time, os, io
 from PIL import Image, PngImagePlugin
-from shared import SDModelType, PromptPrefix, SD_URL, IMG_DIR as OUTPUT_DIR
+from shared import SDModelType, PromptPrefix, SD_URL, IMG_DIR as OUTPUT_DIR, MOCK_GEN_IMG_PATH
 from custom_logging import logger, log_function_call
 from typing import Dict, Any, List, Tuple, Optional
 import aiohttp
@@ -50,6 +50,17 @@ def save_image(image: Image.Image) -> None:
     file_path = uniquify(file_path)
     image.save(file_path)
     logger.info(f'Image saved: {file_path}')
+
+def get_first_image():
+    """For debugging"""
+    for filename in os.listdir(os.path.join(OUTPUT_DIR)):
+        if filename.endswith('.png'):
+            image_path = os.path.join(os.path.join(OUTPUT_DIR), filename)
+            return Image.open(image_path)
+    return None
+
+def mock_generate_image():
+    return Image.open(MOCK_GEN_IMG_PATH)
 
 def add_prefix_to_prompt(prompt: str, prefix: str) -> str:
     return ", \n\n".join([_ for _ in [prefix, prompt] if _])
@@ -117,15 +128,3 @@ async def generate_image(sd_model: SDModelType, prompt: str, prompt_n: str = Non
     image = add_generation_metadata(image, metadata)
 
     return image
-
-async def mock_generate_image(sd_model: SDModelType, prompt: str, prompt_n: str = None) -> Image.Image:
-    """For debugging"""
-    return get_first_image()
-
-def get_first_image():
-    """For debugging"""
-    for filename in os.listdir(os.path.join(OUTPUT_DIR)):
-        if filename.endswith('.png'):
-            image_path = os.path.join(os.path.join(OUTPUT_DIR), filename)
-            return Image.open(image_path)
-    return None

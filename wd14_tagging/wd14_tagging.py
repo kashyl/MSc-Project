@@ -22,6 +22,13 @@ CSV_FILE = FILES[-1]
 TAGS_WHITELIST_PATH = os.path.join(ROOT_DIR, 'wd14_tagging', 'tags_whitelist.json')
 TAGS_RENAME_MAP_PATH = os.path.join(ROOT_DIR, 'wd14_tagging', 'tags_renaming.json')
 
+MOCK_GEN_TAGS = [
+    ('sky', 0.9), ('scenery', 0.88), ('star (sky)', 0.83), ('cloud', 0.81), ('starry sky',   
+    0.76), ('whale', 0.75), ('bird', 0.67), ('night', 0.47), ('night sky', 0.41), ('sunset', 0.4), ('animal', 0.39), 
+    ('shooting star', 0.37), ('cloudy sky', 0.35)
+]
+MOCK_GEN_FALSE_TAGS = [('cracked skin', 0.0), ('pink theme', 0.0), ('waving', 0.0), ('park bench', 0.0), ('afterimage', 0.0)]
+
 class WD14Tagger():
     """
     Parameters:
@@ -78,6 +85,10 @@ class WD14Tagger():
 
     def _set_image_tags(self, value):
         self._image_tags = value
+
+    @staticmethod
+    def get_mock_tags():
+        return MOCK_GEN_TAGS
 
     def _set_image(self, value):
         self._image = value
@@ -411,3 +422,11 @@ class WD14Tagger():
         self._determine_image_rating()
         self._process_and_filter_image_tags()
         self._set_image_tags(self.apply_tags_rename_mappings(self.image_tags))
+
+    def mock_generate_tags(self):
+        """ For debugging. """
+        self._image_rating = 'general'
+        self._set_image_tags(MOCK_GEN_TAGS)
+
+    def mock_gen_false_tags(self):
+        self._set_random_false_tags(MOCK_GEN_FALSE_TAGS)

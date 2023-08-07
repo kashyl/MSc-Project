@@ -20,8 +20,9 @@ class GradioUI:
 
         img = self.app.image
         tags = self.app.tags_to_display
+        gen_info = self.app.image_gen_info
 
-        return self.ui_update_image(img), self.ui_update_tags(tags)
+        return self.ui_update_image(img), self.ui_update_tags(tags), self.ui_update_gen_info(gen_info)
 
     def ui_update_tags(self, image_tags):
         try:
@@ -35,6 +36,12 @@ class GradioUI:
         
     def ui_update_image(self, image):
         return gr.Image.update(value=image, label='AI Generated Image', show_share_button=True)
+    
+    def ui_update_gen_info(self, img_sd_gen_info):
+        return gr.Markdown.update(value=img_sd_gen_info)
+    
+    def ui_update_gen_info_wrapper(self, gen_info):
+        return gr.Accordion.update(visible=bool(gen_info))
 
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
@@ -48,8 +55,8 @@ class GradioUI:
                     with gr.Row():
                         with gr.Column():
                             generated_image = gr.Image(elem_id='generated-image', label='Click the button to generate an image!')
-                            with gr.Accordion('Generation info', visible=False):
-                                gr.Markdown(value='a')
+                            with gr.Accordion('Image Generation Info', visible=False, open=False) as gen_info_wrapper:
+                                gen_info = gr.Markdown(value='a')
                         image_tags = gr.CheckboxGroup(choices=None, label="Tags", info="info message", interactive=True, visible=False)
 
             with gr.Tab(label='Settings'):
@@ -57,7 +64,7 @@ class GradioUI:
                     sd_checkpoint = gr.Dropdown(
                         choices=[
                             RANDOM_MODEL_OPT_STRING,
-                            *SDModels.get_checkpoints_names()
+                            *SDModels.get_gui_model_names_list()
                         ],
                         label='Stable Diffusion Checkpoint (Model)',
                         show_label=True,
@@ -66,7 +73,7 @@ class GradioUI:
                     )
 
             # Events
-            generate_btn.click(self.generate_question, inputs=[custom_prompt, sd_checkpoint], outputs=[generated_image, image_tags])
-            #generated_image.change(fn=self.ui_display_new_image_tags, outputs=image_tags)
+            generate_btn.click(self.generate_question, inputs=[custom_prompt, sd_checkpoint], outputs=[generated_image, image_tags, gen_info])
+            gen_info.change(fn=self.ui_update_gen_info_wrapper, inputs=gen_info, outputs=gen_info_wrapper)
 
         demo.queue(concurrency_count=20).launch()
