@@ -21,6 +21,12 @@ DIFFICULTY_LEVEL_TAG_RATIO = {
     DifficultyLevels.HARD: 2
 }
 
+DIFFICULTY_LEVEL_EXP_GAIN = {
+    DifficultyLevels.EASY: 0.5,
+    DifficultyLevels.NORMAL: 1.0,
+    DifficultyLevels.HARD: 1.5
+}
+
 class GUIFiltersLabels(Enum):
     GENERAL = 'General (Safe)'
     SENSITIVE = 'Sensitive'

@@ -5,7 +5,7 @@ from math import floor
 
 from custom_logging import logger
 from sd_api_wrapper import generate_image as sd_generate_image, get_progress, mock_generate_image
-from shared import SDModels, EventHandler, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, DIFFICULTY_LEVEL_TAG_RATIO
+from shared import SDModels, EventHandler, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, DIFFICULTY_LEVEL_TAG_RATIO, DIFFICULTY_LEVEL_EXP_GAIN
 from wd14_tagging.wd14_tagging import WD14Tagger
 from content_filter import ContentFilter
 
@@ -141,10 +141,6 @@ class App:
         return self.wd14_tagger.image_rating
     
     @property
-    def image_rating_and_tags(self):
-        return self.wd14_tagger.image_rating_and_tags
-
-    @property
     def false_tags(self):
         return self.wd14_tagger.random_false_tags
 
@@ -204,3 +200,82 @@ class App:
         self._generate_image_func(prompt, checkpoint)
         self._generate_tags_func()
         self._apply_image_rating_filter(content_filter_level)
+
+    def evaluate_selected_tags(self, selected_tags_list: list):
+        # Define the functions using tag weight threshold from wd14 tagger
+        gained_points, lost_points = self.create_points_calculators()
+
+        correct_ans = [tag for tag in self.image_tags if tag[0] in selected_tags_list]
+        incorrect_ans = [tag for tag in self.false_tags if tag[0] in selected_tags_list]
+        missed_tags = [tag for tag in self.image_tags if tag[0] not in selected_tags_list]
+        
+        # Calculate total points for correct answers
+        total_gained = sum(gained_points(tag[1]) for tag in correct_ans)
+        
+        # Calculate total points lost for incorrect answers
+        total_lost = sum(lost_points(tag[1]) for tag in incorrect_ans)
+        
+        # Calculate the net points, round down, min is 0
+        net_points = total_gained + total_lost
+        net_points = round(float(net_points), 1)
+        net_points = max(net_points, 0)
+        
+        logger.info(f'Correct answers: {len(correct_ans)}. Incorrect answers: {len(incorrect_ans)}. Net Points: {net_points}')
+
+        return (
+            self.convert_points_to_exp(net_points),
+            [t[0] for t in correct_ans], 
+            [t[0] for t in incorrect_ans],
+            [t[0] for t in missed_tags]
+        )
+
+    def create_points_calculators(self) -> tuple:
+        """
+        Create functions to calculate points based on the given threshold.
+
+        This method returns two calculators:
+        1. `gained_points`: Calculates points gained for correct tags based on their weight.
+        2. `lost_points`: Calculates points lost for incorrect tags based on their weight.
+
+        For a general threshold:
+            If weight = threshold: 
+                `gained_points` returns 1
+                `lost_points` returns 0
+            If weight = 1.0:
+                `gained_points` returns 1.25
+                `lost_points` returns 0 (since it's a correct tag)
+            If weight = 0.0:
+                `gained_points` returns 0 (since it's below threshold and considered incorrect)
+                `lost_points` returns -2
+
+        Returns:
+        - tuple: A tuple containing two functions:
+            1. `gained_points` which takes a tag weight and returns the points gained.
+            2. `lost_points` which takes a tag weight and returns the points lost (negative value).
+        """
+        threshold = self.wd14_tagger.general_tag_threshold
+
+        # Ensure threshold is not 1.0 to prevent division by zero
+        if threshold == 1.0:
+            threshold -= 1e-9
+
+        def gained_points(weight: float) -> float:
+            if weight < threshold:
+                return 0
+            return 1 + 0.25 * (weight - threshold) / (1.0 - threshold)
+
+        def lost_points(weight: float) -> float:
+            if weight >= threshold:
+                return 0
+            return -2 * (threshold - weight) / threshold
+
+        return gained_points, lost_points
+
+    def convert_points_to_exp(self, points: int):
+        if points <= 0:
+            return 0
+        
+        difficulty_enum = DifficultyLevels[self.difficulty_level.upper()]
+        exp_gain_multiplier = DIFFICULTY_LEVEL_EXP_GAIN[difficulty_enum]
+        exp_gained = (points * exp_gain_multiplier) * 10
+        return int(exp_gained)

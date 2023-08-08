@@ -80,6 +80,10 @@ class WD14Tagger():
         self._all_tags_weights = value
 
     @property
+    def general_tag_threshold(self):
+        return self._general_tag_threshold
+
+    @property
     def image_tags(self):
         return self._image_tags
 

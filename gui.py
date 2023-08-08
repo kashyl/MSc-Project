@@ -30,8 +30,17 @@ class GradioUI:
             self.ui_update_tags(tags),
             self.ui_update_gen_info(gen_info),
             self.ui_update_reveal_btn_wrapper_visibility(),
-            self.ui_update_filtered_disclaimer_lbl()
+            self.ui_update_filtered_disclaimer_lbl(),
+            self.ui_update_generate_btn_display(False),
+            self.ui_update_submit_btn_display()
         )
+    
+    def on_submit(self, selected_tags: list):
+        exp_gain, ans_correct, ans_incorrect, ans_missed = self.app.evaluate_selected_tags(selected_tags)
+        print(exp_gain)
+        print(ans_correct)
+        print(ans_incorrect)
+        print(ans_missed)
 
     def ui_update_tags(self, image_tags):
         display_tags = not self.app.image_is_filtered
@@ -46,7 +55,12 @@ class GradioUI:
             raise ValueError(f'{e}\nimage_tags parameter value: {image_tags}')
         
     def ui_reveal_content(self):
-        return self.ui_show_image_tags(), self.ui_reveal_image(), self.ui_update_reveal_btn_wrapper_visibility(False)
+        return (
+            self.ui_show_image_tags(), 
+            self.ui_reveal_image(), 
+            self.ui_update_reveal_btn_wrapper_visibility(False),
+            self.ui_update_submit_btn_display(True)
+        )
 
     def ui_reveal_image(self):
         original_image = self.app.original_image
@@ -75,6 +89,14 @@ class GradioUI:
         else:
             return gr.Markdown.update(value='')
 
+    def ui_update_generate_btn_display(self, override_display=None):
+        display_btn = override_display if override_display is not None else not self.app.image_is_filtered
+        return gr.Button.update(visible=display_btn)
+
+    def ui_update_submit_btn_display(self, override_display=None):
+        display_btn = override_display if override_display is not None else not self.app.image_is_filtered
+        return gr.Button.update(visible=display_btn)
+
     def ui_show_tags_wrapper(self):
         return gr.Column.update(visible=True)
 
@@ -99,9 +121,6 @@ class GradioUI:
                         info = ("Difficulty influences the true/false tag ratio, time limit, and gained EXP rewards.")
                     )
 
-                with gr.Row():
-                    generate_btn = gr.Button("Generate Question")
-
                 with gr.Box():
                     with gr.Row():
                         with gr.Column():
@@ -113,7 +132,10 @@ class GradioUI:
                             with gr.Box(visible=False) as reveal_content_wrapper:
                                 with gr.Column():
                                     filter_disclaimer_lbl = gr.Markdown()
-                                    reveal_content_btn = gr.Button('Reveal Content')
+                                    with gr.Row():
+                                        on_filtered_generate_new_btn = gr.Button('Generate New Image')
+                                        reveal_content_btn = gr.Button('Reveal Content')
+
                             image_tags = gr.CheckboxGroup(
                                 choices=None, 
                                 label="Image Tags", 
@@ -121,6 +143,8 @@ class GradioUI:
                                 interactive=True, 
                                 visible=True
                             )
+                            generate_btn = gr.Button("Generate New Image")
+                            submit_btn = gr.Button("Submit", visible=False)
 
             with gr.Tab(label='Settings'):
                 sd_checkpoint = gr.Dropdown(
@@ -142,30 +166,41 @@ class GradioUI:
                 )
 
             # Events
-            generate_btn.click(
-                self.generate_question, 
-                inputs=[
-                    custom_prompt, 
-                    sd_checkpoint,
-                    content_filter_rating, 
-                    game_difficulty
-                ], 
-                outputs=[
-                    generated_image, 
-                    image_tags, 
-                    gen_info,
-                    reveal_content_wrapper,
-                    filter_disclaimer_lbl
-                ]
-            )
+            def bind_generate_click_event(button: gr.Button):
+                button.click(
+                    self.generate_question, 
+                    inputs=[
+                        custom_prompt, 
+                        sd_checkpoint,
+                        content_filter_rating, 
+                        game_difficulty
+                    ], 
+                    outputs=[
+                        generated_image, 
+                        image_tags, 
+                        gen_info,
+                        reveal_content_wrapper,
+                        filter_disclaimer_lbl,
+                        generate_btn,
+                        submit_btn
+                    ]
+                )
+
+            bind_generate_click_event(generate_btn)
+            bind_generate_click_event(on_filtered_generate_new_btn)
+
             gen_info.change(fn=self.ui_update_gen_info_wrapper, inputs=gen_info, outputs=gen_info_wrapper)
+
             reveal_content_btn.click(
                 fn=self.ui_reveal_content,
                 outputs=[
                     image_tags,
                     generated_image,
-                    reveal_content_wrapper
+                    reveal_content_wrapper,
+                    submit_btn
                 ]
             )
+
+            submit_btn.click(fn=self.on_submit, inputs=image_tags)
 
         demo.queue(concurrency_count=20).launch()
