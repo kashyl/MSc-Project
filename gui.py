@@ -1,6 +1,6 @@
 import gradio as gr
 from app import App
-from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels
+from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, GUIFiltersLabels
 
 class GUIProgressObserver:
     def __init__(self, gr_progress):
@@ -14,9 +14,9 @@ class GradioUI:
         self.current_img_rating = None
         self.app = app
 
-    def generate_question(self, prompt: str, sd_model: str, difficulty: str, gr_progress=gr.Progress()):
+    def generate_question(self, prompt: str, sd_model: str, content_filter_level: str, difficulty: str, gr_progress=gr.Progress()):
         with ObserverContext(self.app.event_handler, GUIProgressObserver(gr_progress)):
-            self.app.generate_round(prompt, sd_model, difficulty)
+            self.app.generate_round(prompt, sd_model, content_filter_level, difficulty)
 
         img = self.app.image
         tags = self.app.tags_to_display
@@ -64,29 +64,37 @@ class GradioUI:
                     with gr.Row():
                         with gr.Column():
                             generated_image = gr.Image(elem_id='generated-image', label='Click the button to generate an image!')
-                            with gr.Accordion('Image Generation Info', visible=False, open=False) as gen_info_wrapper:
-                                gen_info = gr.Markdown(value='a')
+                            with gr.Row():
+                                with gr.Accordion('Image Generation Info', visible=False, open=False) as gen_info_wrapper:
+                                    gen_info = gr.Markdown(value='a')
                         image_tags = gr.CheckboxGroup(choices=None, label="Tags", info="info message", interactive=True, visible=False)
 
             with gr.Tab(label='Settings'):
-                with gr.Row():
-                    sd_checkpoint = gr.Dropdown(
-                        choices=[
-                            RANDOM_MODEL_OPT_STRING,
-                            *SDModels.get_gui_model_names_list()
-                        ],
-                        label='Stable Diffusion Checkpoint (Model)',
-                        show_label=True,
-                        value=RANDOM_MODEL_OPT_STRING,
-                        interactive=True
-                    )
+                sd_checkpoint = gr.Dropdown(
+                    choices=[
+                        RANDOM_MODEL_OPT_STRING,
+                        *SDModels.get_gui_model_names_list()
+                    ],
+                    label='Stable Diffusion Model',
+                    info='Select the pre-trained model checkpoint (.safetensors/.ckpt) to use for image generation.',
+                    show_label=True,
+                    value=RANDOM_MODEL_OPT_STRING,
+                    interactive=True
+                )
+                content_filter_rating = gr.Radio(
+                    [enum.value for enum in GUIFiltersLabels],
+                    value=GUIFiltersLabels.GENERAL.value, 
+                    label="Content Rating Filter", 
+                    info = ("Select a content rating; any generated images rated above the chosen level will be blurred out.")
+                )
 
             # Events
             generate_btn.click(
                 self.generate_question, 
                 inputs=[
                     custom_prompt, 
-                    sd_checkpoint, 
+                    sd_checkpoint,
+                    content_filter_rating, 
                     game_difficulty
                 ], 
                 outputs=[

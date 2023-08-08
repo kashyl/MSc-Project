@@ -5,7 +5,8 @@ from enum import Enum
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 IMG_DIR = os.path.join(ROOT_DIR, 'img')
-MOCK_GEN_IMG_PATH = os.path.join(ROOT_DIR, 'static', 'debug.png')
+STATIC_DIR = os.path.join(ROOT_DIR, 'static')
+MOCK_GEN_IMG_PATH = os.path.join(STATIC_DIR, 'debug.png')
 SD_URL = "http://127.0.0.1:7860"
 RANDOM_MODEL_OPT_STRING = 'Select at random for each generation'
 
@@ -20,11 +21,11 @@ DIFFICULTY_LEVEL_TAG_RATIO = {
     DifficultyLevels.HARD: 2
 }
 
-class ImageRatings():
-    GENERAL = 'general'
-    SENSITIVE = 'sensitive'
-    QUESTIONABLE = 'questionable'
-    EXPLICIT = 'explicit'
+class GUIFiltersLabels(Enum):
+    GENERAL = 'General (Safe)'
+    SENSITIVE = 'Sensitive'
+    QUESTIONABLE = 'Questionable'
+    EXPLICIT = 'Explicit (Show Everything)'
 
 class EventHandler():
     """ For updating progress in the GUI. """

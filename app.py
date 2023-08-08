@@ -26,7 +26,6 @@ DEBUG_MOCK_GEN_INFO = [
 class App:
     def __init__(self, debug_mock_image=False, debug_mock_tags=False):
         self._image = None
-        self._original_image = None # initial image, before post-process, content-filter blur etc
         self._image_gen_info = None
         self._difficulty_level = None
 
@@ -95,9 +94,6 @@ class App:
     def _set_image(self, img: Image.Image):
         self._image = img
 
-    def _set_original_image(self, img: Image.Image):
-        self._original_image = img
-
     def _set_image_generation_info(self, sd_gen_info):
         self._image_gen_info = sd_gen_info
 
@@ -152,6 +148,10 @@ class App:
         return self._image
 
     @property
+    def original_image(self):
+        return self.content_filter.original_image
+
+    @property
     def tags_to_display(self):
         combined_tags = self.image_tags + self.false_tags
         random.shuffle(combined_tags)
@@ -159,19 +159,12 @@ class App:
 
     def _generate_image(self, prompt: str, checkpoint: str):
         generated_image = self._run_sd_generate(prompt, checkpoint)
-        self._set_original_image(generated_image)
         self._set_image(generated_image)
         self._extract_image_generation_info()
 
     def _generate_tags(self):
         self._run_wd14_tagger()
         self._set_image(self.wd14_tagger.add_wd14_metadata_to_image(self.image))
-
-        self.event_handler.notify_observers(0.9, 'Checking image rating against filters ...')
-        if self.content_filter.is_rating_filtered(self.image_rating):
-            self._set_image(self.content_filter.blur_image(self.image))
-            print('oh no!') # TODO
-
         self._generate_false_tags()
         
     def _generate_false_tags(self):
@@ -185,6 +178,13 @@ class App:
         f_tag_count_rounded_down = floor(f_tag_count)
         return max(f_tag_count_rounded_down, 1) # max for at least 1 false tag (if img has 1 true tag)
 
+    def _apply_image_rating_filter(self, content_filter_level: str):
+        self.event_handler.notify_observers(0.9, 'Checking image rating against filters ...')
+        self.content_filter.set_content_filter_level(content_filter_level)
+        if self.content_filter.is_rating_filtered(self.image_rating):
+            self._set_image(self.content_filter.blur_image(self.image))
+            print('oh no!') # TODO
+
     def _mock_gen_image(self, *args):
         self._set_image(mock_generate_image())    # get mock image for debugging
         self._set_image_generation_info(DEBUG_MOCK_GEN_INFO)
@@ -193,8 +193,9 @@ class App:
         self.wd14_tagger.mock_generate_tags()
         self.wd14_tagger.mock_gen_false_tags()
 
-    def generate_round(self, prompt: str, checkpoint: str, difficulty: str):
+    def generate_round(self, prompt: str, checkpoint: str, content_filter_level: str, difficulty: str):
         self._clear_round_data()
         self._set_difficulty_level(difficulty)
         self._generate_image_func(prompt, checkpoint)
         self._generate_tags_func()
+        self._apply_image_rating_filter(content_filter_level)
