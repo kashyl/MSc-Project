@@ -27,6 +27,7 @@ class App:
     def __init__(self, debug_mock_image=False, debug_mock_tags=False):
         self._image = None
         self._image_gen_info = None
+        self._image_is_filtered = False
         self._difficulty_level = None
 
         self.event_handler = EventHandler()
@@ -39,8 +40,8 @@ class App:
 
     def _clear_round_data(self):
         self._image = None
-        self._original_image = None
         self._image_gen_info = None
+        self._image_is_filtered = None
         self._difficulty_level = None
 
     def _run_sd_generate(self, prompt: str, gui_model_name: str):
@@ -128,6 +129,10 @@ class App:
         return ', '.join(self._image_gen_info)
 
     @property
+    def image_is_filtered(self):
+        return self._image_is_filtered
+
+    @property
     def image_tags(self):
         return self.wd14_tagger.image_tags
     
@@ -183,8 +188,8 @@ class App:
         self.content_filter.set_content_filter_level(content_filter_level)
         if self.content_filter.is_rating_filtered(self.image_rating):
             self._set_image(self.content_filter.blur_image(self.image))
-            print('oh no!') # TODO
-
+            self._image_is_filtered = True  # flag current image as rating filtered
+        
     def _mock_gen_image(self, *args):
         self._set_image(mock_generate_image())    # get mock image for debugging
         self._set_image_generation_info(DEBUG_MOCK_GEN_INFO)

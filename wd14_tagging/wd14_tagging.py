@@ -425,7 +425,7 @@ class WD14Tagger():
 
     def mock_generate_tags(self):
         """ For debugging. """
-        self._image_rating = 'general'
+        self._image_rating = 'explicit'
         self._set_image_tags(MOCK_GEN_TAGS)
 
     def mock_gen_false_tags(self):
