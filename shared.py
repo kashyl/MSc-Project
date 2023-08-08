@@ -1,12 +1,24 @@
 import os, re
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Any
+from enum import Enum
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 IMG_DIR = os.path.join(ROOT_DIR, 'img')
 MOCK_GEN_IMG_PATH = os.path.join(ROOT_DIR, 'static', 'debug.png')
 SD_URL = "http://127.0.0.1:7860"
 RANDOM_MODEL_OPT_STRING = 'Select at random for each generation'
+
+class DifficultyLevels(Enum):
+    EASY = "Easy"
+    NORMAL = "Normal"
+    HARD = "Hard"
+
+DIFFICULTY_LEVEL_TAG_RATIO = {
+    DifficultyLevels.EASY: 0.5,
+    DifficultyLevels.NORMAL: 1,
+    DifficultyLevels.HARD: 2
+}
 
 class ImageRatings():
     GENERAL = 'general'
@@ -98,6 +110,7 @@ class SDModelType:
         return SDModelType(option_payload=option_payload, payload=payload, prompt_prefix=prompt_prefix)
 
 class CheckpointNamesGUI:
+    SARDONYX = 'Sardonyx Redux v20 - Stylized/Cartoon'
     REALISTICVISION = 'Realistic Vision v4 - Photorealistic'
     GHOSTMIX = 'Ghost Mix v20 - Anime/Photorealistic'
     AOM3A1B = 'AbyssOrangeMix3 A1B - Anime/Landscapes'
@@ -109,6 +122,7 @@ class CheckpointNamesGUI:
     MISTOON = "Mistoon v20 - Cartoon/Anime/Drawings"
 
 class SDModels:
+    sardonyxREDUX_v20 = SDModelType.create('sardonyxREDUX_v20.safetensors [40d4f9d626]')
     abyssorangemix3A0M3_aom3alb = SDModelType.create('abyssorangemix3AOM3_aom3a1b.safetensors [5493a0ec49]')
     anything_v3_full = SDModelType.create('anything-v3-full.safetensors [abcaf14e5a]')
     mistoonAnime_v20 = SDModelType.create('mistoonAnime_v20.safetensors [c35e1054c0]')
@@ -147,6 +161,7 @@ class SDModels:
     def get_sd_model(gui_model_name) -> SDModelType:
         # Define a mapping between checkpoint names and their corresponding SDModelType objects
         mapping = {
+            CheckpointNamesGUI.SARDONYX: SDModels.sardonyxREDUX_v20,
             CheckpointNamesGUI.AOM3A1B: SDModels.abyssorangemix3A0M3_aom3alb,
             CheckpointNamesGUI.ANYTHINGV3: SDModels.anything_v3_full,
             CheckpointNamesGUI.KANPIRO: SDModels.kanpiromix_v20,

@@ -23,5 +23,5 @@ class ContentFilter():
         }
         return rating_levels[image_rating] > self._content_filter_level
 
-    def get_blurred_image(self, image: Image.Image):
+    def blur_image(self, image: Image.Image):
         return image.filter(ImageFilter.GaussianBlur(radius=50))

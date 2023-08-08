@@ -1,6 +1,6 @@
 import gradio as gr
 from app import App
-from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext
+from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels
 
 class GUIProgressObserver:
     def __init__(self, gr_progress):
@@ -14,9 +14,9 @@ class GradioUI:
         self.current_img_rating = None
         self.app = app
 
-    def generate_question(self, prompt: str, sd_model: str, gr_progress=gr.Progress()):
+    def generate_question(self, prompt: str, sd_model: str, difficulty: str, gr_progress=gr.Progress()):
         with ObserverContext(self.app.event_handler, GUIProgressObserver(gr_progress)):
-            self.app.generate_round(prompt, sd_model)
+            self.app.generate_round(prompt, sd_model, difficulty)
 
         img = self.app.image
         tags = self.app.tags_to_display
@@ -49,8 +49,17 @@ class GradioUI:
 
             with gr.Tab('Main'):
                 with gr.Row():
-                    custom_prompt = gr.Textbox('whale on deep blue sky, white birds, star, thick clouds', label='Custom prompt')
+                    custom_prompt = gr.Textbox('whale, deep blue sky, white birds, star, thick clouds', label='Custom prompt')
+                    game_difficulty = gr.Radio(
+                        [d.value for d in DifficultyLevels],
+                        value=DifficultyLevels.NORMAL.value, 
+                        label="Difficulty Level", 
+                        info = ("Difficulty influences the true/false tag ratio, time limit, and gained EXP rewards.")
+                    )
+
+                with gr.Row():
                     generate_btn = gr.Button("Generate Question")
+
                 with gr.Box():
                     with gr.Row():
                         with gr.Column():
@@ -73,7 +82,19 @@ class GradioUI:
                     )
 
             # Events
-            generate_btn.click(self.generate_question, inputs=[custom_prompt, sd_checkpoint], outputs=[generated_image, image_tags, gen_info])
+            generate_btn.click(
+                self.generate_question, 
+                inputs=[
+                    custom_prompt, 
+                    sd_checkpoint, 
+                    game_difficulty
+                ], 
+                outputs=[
+                    generated_image, 
+                    image_tags, 
+                    gen_info
+                ]
+            )
             gen_info.change(fn=self.ui_update_gen_info_wrapper, inputs=gen_info, outputs=gen_info_wrapper)
 
         demo.queue(concurrency_count=20).launch()
