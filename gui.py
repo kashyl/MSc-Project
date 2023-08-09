@@ -1,6 +1,8 @@
+import re
 import gradio as gr
 from app import App
 from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, GUIFiltersLabels, DIFFICULTY_LEVEL_EXP_GAIN
+from db_manager import DatabaseManager, DEFAULT_STATE
 
 class GUIProgressObserver:
     def __init__(self, gr_progress):
@@ -13,6 +15,7 @@ class GradioUI:
         self.current_img_tags_and_weights = None
         self.current_img_rating = None
         self.app = app
+        self.db_manager = DatabaseManager()
 
     def generate_question(self, prompt: str, sd_model: str, content_filter_level: str, difficulty: str, gr_progress=gr.Progress()):
         with ObserverContext(self.app.event_handler, GUIProgressObserver(gr_progress)):
@@ -193,9 +196,53 @@ class GradioUI:
     
     def ui_update_gen_info_wrapper(self, gen_info):
         return gr.Accordion.update(visible=bool(gen_info))
+    
+    def ui_account_login_or_register_display(self, choice):
+        if choice == "Login":
+            return gr.Button.update(visible=True), gr.Button.update(visible=False)
+        elif choice == "Register":
+            return gr.Button.update(visible=False), gr.Button.update(visible=True)
+
+    @staticmethod
+    def _account_validate_input(username, password):
+        """
+        Username Requirements:
+
+        Only letters and numbers.
+        Minimum of 3 characters.
+        Start with 2 letters.
+        Regex: ^[a-zA-Z]{2}[a-zA-Z0-9]{1,}$
+
+        Password Requirements:
+
+        At least 4 characters.
+        For this, a simple length check will suffice.
+        """
+        username_pattern = r"^[a-zA-Z]{2}[a-zA-Z0-9]{1,}$"
+        if not re.match(username_pattern, username):
+            gr.Warning("Username must start with 2 letters, be at least 3 characters long, and contain only letters or numbers.")
+            return False
+
+        if len(password) < 4:
+            gr.Warning("Password must be at least 4 characters long.")
+            return False
+        
+        return True
+
+    def account_register(self, username: str, password: str, state:dict):
+        if not self._account_validate_input(username, password):
+            return DEFAULT_STATE
+        state = self.db_manager.register(username, password, state)
+        return state
+
+    def account_login(self, username: str, password: str, state: dict):
+        state = self.db_manager.login(username, password, state)
+        return state
 
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
+            gr_state = gr.State(value=DEFAULT_STATE)
+
             with gr.Tab('Main'):
                 with gr.Row():
                     custom_prompt = gr.Textbox('whale, deep blue sky, white birds, star, thick clouds', label='Custom prompt')
@@ -243,6 +290,20 @@ class GradioUI:
                                         results_tag_wiki_result_md = gr.Markdown()
                             
                             generate_btn = gr.Button("Generate New Image")
+
+            with gr.Tab(label='Account') as account_tab:
+                with gr.Column(visible=True) as account_credentials_form:
+                    account_forms_radio = gr.Radio([
+                        "Login", "Register"], 
+                        label='You are not currently logged in. Please select account action:', 
+                        value="Login")
+                    
+                    with gr.Column():
+                        with gr.Row():
+                            account_username_tb = gr.Textbox(label="Username", type="text")
+                            account_password_tb = gr.Textbox(label="Password", type="password")
+                        account_login_btn = gr.Button("Login", visible=True)
+                        account_register_btn = gr.Button("Register", visible=False)
 
             with gr.Tab(label='Settings'):
                 sd_checkpoint = gr.Dropdown(
@@ -321,6 +382,39 @@ class GradioUI:
                 outputs=[
                     results_tag_wiki_result_md,
                     results_tag_wiki_result_md_wrapper
+                ]
+            )
+
+            account_forms_radio.change(
+                fn=self.ui_account_login_or_register_display,
+                inputs=account_forms_radio,
+                outputs=[
+                    account_login_btn,
+                    account_register_btn
+                ]
+            )
+
+            account_register_btn.click(
+                fn=self.account_register,
+                inputs=[
+                    account_username_tb,
+                    account_password_tb,
+                    gr_state
+                ],
+                outputs=[
+                    gr_state
+                ]
+            )
+
+            account_login_btn.click(
+                fn=self.account_login,
+                inputs=[
+                    account_username_tb,
+                    account_password_tb,
+                    gr_state
+                ],
+                outputs=[
+                    gr_state
                 ]
             )
 
