@@ -2,6 +2,7 @@ import asyncio, aiohttp, random, re
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from math import floor
+from typing import List, Tuple
 
 from custom_logging import logger
 from sd_api_wrapper import generate_image as sd_generate_image, get_progress, mock_generate_image
@@ -29,6 +30,12 @@ class App:
         self._image_gen_info = None
         self._image_is_filtered = False
         self._difficulty_level = None
+        self._submitted_tags = None
+
+        self._correct_answers_cache = None
+        self._incorrect_answers_cache = None
+        self._missed_answers_cache = None
+        self._net_points_cache = None
 
         self.event_handler = EventHandler()
         self.wd14_tagger = WD14Tagger()
@@ -43,6 +50,12 @@ class App:
         self._image_gen_info = None
         self._image_is_filtered = None
         self._difficulty_level = None
+        self._submitted_tags = None
+
+        self._correct_answers_cache = None
+        self._incorrect_answers_cache = None
+        self._missed_answers_cache = None
+        self._net_points_cache = None
 
     def _run_sd_generate(self, prompt: str, gui_model_name: str):
         """
@@ -158,6 +171,59 @@ class App:
         random.shuffle(combined_tags)
         return combined_tags
 
+    def _set_submitted_tags(self, tag_names_list: list):
+        self._submitted_tags = tag_names_list
+
+    @property
+    def gained_points(self):
+        if self._net_points_cache is None:
+            # Define the functions using tag weight threshold from wd14 tagger
+            gained_points, lost_points = self.create_points_calculators()
+            # Calculate total points for correct answers
+            total_gained = sum(gained_points(tag[1]) for tag in self.correct_answers)
+            
+            # Calculate total points lost for incorrect answers
+            total_lost = sum(lost_points(tag[1]) for tag in self.incorrect_answers)
+            
+            # Calculate the net points, round down, min is 0
+            net_points = total_gained + total_lost
+            net_points = round(float(net_points), 1)
+            net_points = max(net_points, 0)
+            self._net_points_cache = net_points
+        return self._net_points_cache
+
+    @property
+    def gained_exp(self):
+        if self.gained_points <= 0:
+            return 0
+
+        difficulty_enum = DifficultyLevels[self.difficulty_level.upper()]
+        exp_gain_multiplier = DIFFICULTY_LEVEL_EXP_GAIN[difficulty_enum]
+        exp_gained = (self.gained_points * exp_gain_multiplier) * 10
+        return int(exp_gained)
+    
+    @property
+    def correct_answers(self):
+        if self._correct_answers_cache is None:
+            self._correct_answers_cache = [tag for tag in self.image_tags if tag[0] in self._submitted_tags]
+        return self._correct_answers_cache
+        
+    @property
+    def incorrect_answers(self):
+        if self._incorrect_answers_cache is None:
+            self._incorrect_answers_cache = [tag for tag in self.false_tags if tag[0] in self._submitted_tags]
+        return self._incorrect_answers_cache
+
+    @property
+    def missed_answers(self):
+        if self._missed_answers_cache is None:
+            self._missed_answers_cache = [tag for tag in self.image_tags if tag[0] not in self._submitted_tags]
+        return self._missed_answers_cache
+
+    @staticmethod
+    def tag_names_only(tags_list: List[Tuple[str, int]]) -> List[str]:
+        return [t[0] for t in tags_list]
+
     def _generate_image(self, prompt: str, checkpoint: str):
         generated_image = self._run_sd_generate(prompt, checkpoint)
         self._set_image(generated_image)
@@ -201,32 +267,13 @@ class App:
         self._generate_tags_func()
         self._apply_image_rating_filter(content_filter_level)
 
-    def evaluate_selected_tags(self, selected_tags_list: list):
-        # Define the functions using tag weight threshold from wd14 tagger
-        gained_points, lost_points = self.create_points_calculators()
+    def submit_selected_tags(self, selected_tags_list: list):
+        self._set_submitted_tags(selected_tags_list)
 
-        correct_ans = [tag for tag in self.image_tags if tag[0] in selected_tags_list]
-        incorrect_ans = [tag for tag in self.false_tags if tag[0] in selected_tags_list]
-        missed_tags = [tag for tag in self.image_tags if tag[0] not in selected_tags_list]
-        
-        # Calculate total points for correct answers
-        total_gained = sum(gained_points(tag[1]) for tag in correct_ans)
-        
-        # Calculate total points lost for incorrect answers
-        total_lost = sum(lost_points(tag[1]) for tag in incorrect_ans)
-        
-        # Calculate the net points, round down, min is 0
-        net_points = total_gained + total_lost
-        net_points = round(float(net_points), 1)
-        net_points = max(net_points, 0)
-        
-        logger.info(f'Correct answers: {len(correct_ans)}. Incorrect answers: {len(incorrect_ans)}. Net Points: {net_points}')
-
-        return (
-            self.convert_points_to_exp(net_points),
-            [t[0] for t in correct_ans], 
-            [t[0] for t in incorrect_ans],
-            [t[0] for t in missed_tags]
+        logger.info(
+            f'Correct answers: {len(self.correct_answers)}. '
+            f'Incorrect answers: {len(self.incorrect_answers)}. '
+            f'Net Points: {self.gained_points}'
         )
 
     def create_points_calculators(self) -> tuple:
@@ -270,12 +317,3 @@ class App:
             return -2 * (threshold - weight) / threshold
 
         return gained_points, lost_points
-
-    def convert_points_to_exp(self, points: int):
-        if points <= 0:
-            return 0
-        
-        difficulty_enum = DifficultyLevels[self.difficulty_level.upper()]
-        exp_gain_multiplier = DIFFICULTY_LEVEL_EXP_GAIN[difficulty_enum]
-        exp_gained = (points * exp_gain_multiplier) * 10
-        return int(exp_gained)

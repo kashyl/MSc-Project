@@ -32,16 +32,10 @@ class GradioUI:
             self.ui_update_reveal_btn_wrapper_visibility(),
             self.ui_update_filtered_disclaimer_lbl(),
             self.ui_update_generate_btn_display(False),
-            self.ui_update_submit_btn_display()
+            self.ui_update_submit_btn_display(),
+            self.ui_show_results_wrapper(False)
         )
     
-    def on_submit(self, selected_tags: list):
-        exp_gain, ans_correct, ans_incorrect, ans_missed = self.app.evaluate_selected_tags(selected_tags)
-        print(exp_gain)
-        print(ans_correct)
-        print(ans_incorrect)
-        print(ans_missed)
-
     def ui_update_tags(self, image_tags):
         display_tags = not self.app.image_is_filtered
         try:
@@ -49,7 +43,7 @@ class GradioUI:
                 choices=[tag for tag, weight in image_tags], 
                 visible=display_tags,
                 interactive=True,
-                info='Select the tags that correspond to the displayed image.'
+                info='Select the tags that best match the displayed image.'
             )
         except ValueError as e:
             raise ValueError(f'{e}\nimage_tags parameter value: {image_tags}')
@@ -66,8 +60,8 @@ class GradioUI:
         original_image = self.app.original_image
         return gr.Image.update(value=original_image)
 
-    def ui_show_image_tags(self):
-        return gr.CheckboxGroup.update(visible=True)
+    def ui_show_image_tags(self, display=True):
+        return gr.CheckboxGroup.update(visible=display)
 
     def ui_update_reveal_btn_wrapper_visibility(self, override_display=None):
         display_btn = override_display if override_display is not None else self.app.image_is_filtered
@@ -97,8 +91,84 @@ class GradioUI:
         display_btn = override_display if override_display is not None else not self.app.image_is_filtered
         return gr.Button.update(visible=display_btn)
 
-    def ui_show_tags_wrapper(self):
-        return gr.Column.update(visible=True)
+    def on_submit(self, selected_tags: list):
+        self.app.submit_selected_tags(selected_tags)
+        return (
+            self.ui_update_submit_btn_display(False),
+            self.ui_show_image_tags(False),
+            self.ui_show_results_wrapper(),
+            self.ui_update_results_markdown(),
+            self.ui_update_tag_wiki_search()
+        ) 
+
+    def ui_show_results_wrapper(self, display=True):
+        return gr.Box.update(visible=display)
+
+    def ui_update_results_markdown(self):
+        exp = self.app.gained_exp
+        correct, incorrect, missed = (
+            self.app.tag_names_only(attr) 
+            for attr in (
+                self.app.correct_answers, 
+                self.app.incorrect_answers, 
+                self.app.missed_answers
+            )
+        )
+
+        # Calculate accuracy
+        total_tags = len(correct) + len(incorrect) + len(missed)
+        accuracy = len(correct) / total_tags if total_tags != 0 else 0
+        
+        # Decide on the title based on accuracy
+        title = "# Well Done!" if accuracy > 0.5 else "# Keep Going"
+        
+        # Construct identification line with/without exclamation based on accuracy
+        identification_line = f"You identified **{len(correct)}** out of **{total_tags}** tags correctly"
+        identification_line += "!" if accuracy > 0.5 else "."
+        
+        lines = [title, identification_line]
+
+        # Only add EXP gain message if EXP > 0
+        if exp > 0:
+            lines.append(f"+{exp} XP")
+            gr.Info(f"You've earned {exp} XP!")
+        
+        # Construct individual lines
+        lines.extend([
+            f"🌟 **Correct answers**: {', '.join(correct)}",
+            f"🤔 **Not Quite**: {', '.join(incorrect)}",
+            f"🔍 **You Missed These**: {', '.join(missed)}"
+        ])
+        
+        # Combine and return
+        markdown_result = "\n\n".join(lines)
+        return gr.Markdown.update(value=markdown_result)
+
+    def ui_update_tag_wiki_search(self):
+        if not self.app.image_tags and not self.app.false_tags:
+            return gr.Dropdown.update(choices=[], visible=False, interactive=False)
+        else:
+            return gr.Dropdown.update(
+                choices=[
+                    tag 
+                    for tags_sublist in [
+                        self.app.tag_names_only(self.app.correct_answers), 
+                        self.app.tag_names_only(self.app.incorrect_answers), 
+                        self.app.tag_names_only(self.app.missed_answers)
+                    ] 
+                    for tag in tags_sublist
+                ],
+                visible=True,
+                interactive=True
+            )
+
+    def ui_update_tag_wiki_result(self, tag_name: str):
+        tag_info = 'do api module'
+
+        if not tag_info:
+            return gr.Markdown.update(value=None, visible=False)
+            
+        return gr.Markdown.update(value=tag_info, visible=True)
 
     def ui_update_image(self, image):
         return gr.Image.update(value=image, label='AI Generated Image', show_share_button=True)
@@ -146,6 +216,17 @@ class GradioUI:
                             generate_btn = gr.Button("Generate New Image")
                             submit_btn = gr.Button("Submit", visible=False)
 
+                            with gr.Box(visible=False) as results_wrapper:
+                                with gr.Column():
+                                    results_md = gr.Markdown()
+                                    results_tag_wiki_search_dropdown = gr.Dropdown(
+                                        allow_custom_value=False, 
+                                        multiselect=False,
+                                        label="Tag Details Lookup",
+                                        info="Select a tag to retrieve its detailed description from the tag wiki.")
+                                    results_tag_wiki_result_md = gr.Markdown()
+                                    results_generate_new_btn = gr.Button("Generate New Image")
+
             with gr.Tab(label='Settings'):
                 sd_checkpoint = gr.Dropdown(
                     choices=[
@@ -182,12 +263,14 @@ class GradioUI:
                         reveal_content_wrapper,
                         filter_disclaimer_lbl,
                         generate_btn,
-                        submit_btn
+                        submit_btn,
+                        results_wrapper
                     ]
                 )
 
             bind_generate_click_event(generate_btn)
             bind_generate_click_event(on_filtered_generate_new_btn)
+            bind_generate_click_event(results_generate_new_btn)
 
             gen_info.change(fn=self.ui_update_gen_info_wrapper, inputs=gen_info, outputs=gen_info_wrapper)
 
@@ -201,6 +284,22 @@ class GradioUI:
                 ]
             )
 
-            submit_btn.click(fn=self.on_submit, inputs=image_tags)
+            submit_btn.click(
+                fn=self.on_submit, 
+                inputs=image_tags, 
+                outputs=[
+                    submit_btn,
+                    image_tags,
+                    results_wrapper,
+                    results_md,
+                    results_tag_wiki_search_dropdown
+                ]
+            )
+
+            results_tag_wiki_search_dropdown.change(
+                fn=self.ui_update_tag_wiki_result,
+                inputs=results_tag_wiki_search_dropdown,
+                outputs=results_tag_wiki_result_md
+            )
 
         demo.queue(concurrency_count=20).launch()
