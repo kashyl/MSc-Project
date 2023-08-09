@@ -1,6 +1,7 @@
 import gradio as gr
 from app import App
 from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, GUIFiltersLabels, DIFFICULTY_LEVEL_EXP_GAIN
+from gui_timer import TimerApp
 
 class GUIProgressObserver:
     def __init__(self, gr_progress):
@@ -13,6 +14,7 @@ class GradioUI:
         self.current_img_tags_and_weights = None
         self.current_img_rating = None
         self.app = app
+        self.timer = TimerApp()
 
     def generate_question(self, prompt: str, sd_model: str, content_filter_level: str, difficulty: str, gr_progress=gr.Progress()):
         with ObserverContext(self.app.event_handler, GUIProgressObserver(gr_progress)):
@@ -32,7 +34,7 @@ class GradioUI:
             self.ui_update_reveal_btn_wrapper_visibility(),
             self.ui_update_filtered_disclaimer_lbl(),
             self.ui_update_generate_btn_display(False),
-            self.ui_update_submit_btn_display(),
+            self.ui_update_submit_btn_wrapper_display(),
             self.ui_show_results_wrapper(False)
         )
     
@@ -50,7 +52,7 @@ class GradioUI:
             self.ui_show_image_tags(), 
             self.ui_reveal_image(), 
             self.ui_update_reveal_btn_wrapper_visibility(False),
-            self.ui_update_submit_btn_display(True)
+            self.ui_update_submit_btn_wrapper_display(True)
         )
 
     def ui_reveal_image(self):
@@ -88,10 +90,14 @@ class GradioUI:
         display_btn = override_display if override_display is not None else not self.app.image_is_filtered
         return gr.Button.update(visible=display_btn)
 
+    def ui_update_submit_btn_wrapper_display(self, override_display=None):
+        display = override_display if override_display is not None else not self.app.image_is_filtered
+        return gr.Box.update(visible=display)
+
     def on_submit(self, selected_tags: list):
         self.app.submit_selected_tags(selected_tags)
         return (
-            self.ui_update_submit_btn_display(False),
+            self.ui_update_submit_btn_wrapper_display(False),
             self.ui_show_image_tags(False),
             self.ui_show_results_wrapper(),
             self.ui_update_results_markdown(),
@@ -100,6 +106,13 @@ class GradioUI:
             self.ui_show_tag_wiki_result_wrapper(False),
             self.ui_update_generate_btn_display(True)
         ) 
+    
+    def test(self, timer, selected_tags):
+        # Extracting numeric content from the markdown string
+        print(timer)
+
+        if timer <= 0:
+            return (*self.on_submit(selected_tags),)
 
     def ui_show_results_wrapper(self, display=True):
         return gr.Box.update(visible=display)
@@ -229,7 +242,9 @@ class GradioUI:
                                 visible=True
                             )
 
-                            submit_btn = gr.Button("Submit", visible=False)
+                            with gr.Row(visible=False) as submit_btn_wrapper:
+                                submit_btn = gr.Button("Submit")
+                                submit_timer = gr.Number()
 
                             with gr.Box(visible=False) as results_wrapper:
                                 with gr.Column():
@@ -280,7 +295,7 @@ class GradioUI:
                         reveal_content_wrapper,
                         filter_disclaimer_lbl,
                         generate_btn,
-                        submit_btn,
+                        submit_btn_wrapper,
                         results_wrapper
                     ]
                 )
@@ -296,15 +311,38 @@ class GradioUI:
                     image_tags,
                     generated_image,
                     reveal_content_wrapper,
-                    submit_btn
+                    submit_btn_wrapper
                 ]
             )
 
+            # submit_btn.click(
+            #     fn=self.on_submit, 
+            #     inputs=image_tags, 
+            #     outputs=[
+            #         submit_btn_wrapper,
+            #         image_tags,
+            #         results_wrapper,
+            #         results_md,
+            #         results_tag_wiki_search_dropdown,
+            #         results_tag_wiki_result_md,
+            #         results_tag_wiki_result_md_wrapper,
+            #         generate_btn
+            #     ]
+            # )
+
             submit_btn.click(
-                fn=self.on_submit, 
-                inputs=image_tags, 
+                fn=self.timer.start_timer,
+                outputs=submit_timer
+            )
+
+            submit_timer.change(
+                fn=self.test,
+                inputs=[
+                    submit_timer,
+                    image_tags
+                ], 
                 outputs=[
-                    submit_btn,
+                    submit_btn_wrapper,
                     image_tags,
                     results_wrapper,
                     results_md,
