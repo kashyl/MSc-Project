@@ -1,6 +1,6 @@
 import gradio as gr
 from app import App
-from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, GUIFiltersLabels
+from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, GUIFiltersLabels, DIFFICULTY_LEVEL_EXP_GAIN
 
 class GUIProgressObserver:
     def __init__(self, gr_progress):
@@ -38,15 +38,12 @@ class GradioUI:
     
     def ui_update_tags(self, image_tags):
         display_tags = not self.app.image_is_filtered
-        try:
-            return gr.CheckboxGroup.update(
-                choices=[tag for tag, weight in image_tags], 
-                visible=display_tags,
-                interactive=True,
-                info='Select the tags that best match the displayed image.'
-            )
-        except ValueError as e:
-            raise ValueError(f'{e}\nimage_tags parameter value: {image_tags}')
+        return gr.CheckboxGroup.update(
+            choices=[tag for tag, weight in image_tags], 
+            visible=display_tags,
+            interactive=True,
+            info='Select the tags that best match the displayed image.'
+        )
         
     def ui_reveal_content(self):
         return (
@@ -98,7 +95,10 @@ class GradioUI:
             self.ui_show_image_tags(False),
             self.ui_show_results_wrapper(),
             self.ui_update_results_markdown(),
-            self.ui_update_tag_wiki_search()
+            self.ui_update_tag_wiki_search(),
+            self.ui_clear_tag_wiki_result(),
+            self.ui_show_tag_wiki_result_wrapper(False),
+            self.ui_update_generate_btn_display(True)
         ) 
 
     def ui_show_results_wrapper(self, display=True):
@@ -127,11 +127,6 @@ class GradioUI:
         identification_line += "!" if accuracy > 0.5 else "."
         
         lines = [title, identification_line]
-
-        # Only add EXP gain message if EXP > 0
-        if exp > 0:
-            lines.append(f"+{exp} XP")
-            gr.Info(f"You've earned {exp} XP!")
         
         # Construct individual lines
         lines.extend([
@@ -139,6 +134,13 @@ class GradioUI:
             f"🤔 **Not Quite**: {', '.join(incorrect)}",
             f"🔍 **You Missed These**: {', '.join(missed)}"
         ])
+
+        # Only add EXP gain message if EXP > 0
+        if exp > 0:
+            difficulty_enum = DifficultyLevels[self.app.difficulty_level.upper()]
+            exp_gain_multiplier = DIFFICULTY_LEVEL_EXP_GAIN[difficulty_enum]
+            lines.append(f'<span style="color:green">+{exp} XP</span> <span style="color:grey">(x{exp_gain_multiplier} {self.app.difficulty_level} difficulty multiplier)</span>')
+            gr.Info(f"You've earned {exp} XP!")
         
         # Combine and return
         markdown_result = "\n\n".join(lines)
@@ -163,12 +165,25 @@ class GradioUI:
             )
 
     def ui_update_tag_wiki_result(self, tag_name: str):
-        tag_info = 'do api module'
+        tag_title, tag_info = self.app.get_tag_wiki(tag_name)
 
         if not tag_info:
-            return gr.Markdown.update(value=None, visible=False)
+            no_info_msg = f"Couldn't retrieve information for the tag **{tag_name}**."
+            return gr.Markdown.update(value=no_info_msg, visible=True)
             
-        return gr.Markdown.update(value=tag_info, visible=True)
+         # Prepend the tag_title to the tag_info
+        full_info = f"## {tag_title}\n\n{tag_info}"
+
+        return (
+            gr.Markdown.update(value=full_info, visible=True),
+            self.ui_show_tag_wiki_result_wrapper(True)
+        )
+
+    def ui_clear_tag_wiki_result(self):
+        return gr.Markdown.update(value=None)
+
+    def ui_show_tag_wiki_result_wrapper(self, display=True):
+        return gr.Box.update(visible=display)
 
     def ui_update_image(self, image):
         return gr.Image.update(value=image, label='AI Generated Image', show_share_button=True)
@@ -213,7 +228,7 @@ class GradioUI:
                                 interactive=True, 
                                 visible=True
                             )
-                            generate_btn = gr.Button("Generate New Image")
+
                             submit_btn = gr.Button("Submit", visible=False)
 
                             with gr.Box(visible=False) as results_wrapper:
@@ -224,8 +239,10 @@ class GradioUI:
                                         multiselect=False,
                                         label="Tag Details Lookup",
                                         info="Select a tag to retrieve its detailed description from the tag wiki.")
-                                    results_tag_wiki_result_md = gr.Markdown()
-                                    results_generate_new_btn = gr.Button("Generate New Image")
+                                    with gr.Box(visible=False) as results_tag_wiki_result_md_wrapper:
+                                        results_tag_wiki_result_md = gr.Markdown()
+                            
+                            generate_btn = gr.Button("Generate New Image")
 
             with gr.Tab(label='Settings'):
                 sd_checkpoint = gr.Dropdown(
@@ -270,7 +287,6 @@ class GradioUI:
 
             bind_generate_click_event(generate_btn)
             bind_generate_click_event(on_filtered_generate_new_btn)
-            bind_generate_click_event(results_generate_new_btn)
 
             gen_info.change(fn=self.ui_update_gen_info_wrapper, inputs=gen_info, outputs=gen_info_wrapper)
 
@@ -292,14 +308,20 @@ class GradioUI:
                     image_tags,
                     results_wrapper,
                     results_md,
-                    results_tag_wiki_search_dropdown
+                    results_tag_wiki_search_dropdown,
+                    results_tag_wiki_result_md,
+                    results_tag_wiki_result_md_wrapper,
+                    generate_btn
                 ]
             )
 
             results_tag_wiki_search_dropdown.change(
                 fn=self.ui_update_tag_wiki_result,
                 inputs=results_tag_wiki_search_dropdown,
-                outputs=results_tag_wiki_result_md
+                outputs=[
+                    results_tag_wiki_result_md,
+                    results_tag_wiki_result_md_wrapper
+                ]
             )
 
         demo.queue(concurrency_count=20).launch()

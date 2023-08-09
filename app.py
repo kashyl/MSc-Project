@@ -9,6 +9,7 @@ from sd_api_wrapper import generate_image as sd_generate_image, get_progress, mo
 from shared import SDModels, EventHandler, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, DIFFICULTY_LEVEL_TAG_RATIO, DIFFICULTY_LEVEL_EXP_GAIN
 from wd14_tagging.wd14_tagging import WD14Tagger
 from content_filter import ContentFilter
+from danbooru_api_wrapper import DanbooruApi
 
 DEBUG_MOCK_GEN_INFO = [
     'Steps: 30',
@@ -40,6 +41,7 @@ class App:
         self.event_handler = EventHandler()
         self.wd14_tagger = WD14Tagger()
         self.content_filter = ContentFilter()
+        self.danbooru_api = DanbooruApi()
 
         # Set function pointers based on the debug flags
         self._generate_image_func = self._generate_image if not debug_mock_image else self._mock_gen_image
@@ -317,3 +319,6 @@ class App:
             return -2 * (threshold - weight) / threshold
 
         return gained_points, lost_points
+
+    def get_tag_wiki(self, tag_name: str):
+        return self.danbooru_api.get_tag_wiki(tag_name)
