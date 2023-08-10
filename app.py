@@ -10,6 +10,7 @@ from shared import SDModels, EventHandler, RANDOM_MODEL_OPT_STRING, ObserverCont
 from wd14_tagging.wd14_tagging import WD14Tagger
 from content_filter import ContentFilter
 from danbooru_api_wrapper import DanbooruApi
+from db_manager import DatabaseManager, DEFAULT_STATE, DBResponse, GUIAlertType, UserFields
 
 DEBUG_MOCK_GEN_INFO = [
     'Steps: 30',
@@ -42,6 +43,7 @@ class App:
         self.wd14_tagger = WD14Tagger()
         self.content_filter = ContentFilter()
         self.danbooru_api = DanbooruApi()
+        self.db_manager = DatabaseManager()
 
         # Set function pointers based on the debug flags
         self._generate_image_func = self._generate_image if not debug_mock_image else self._mock_gen_image
@@ -322,3 +324,26 @@ class App:
 
     def get_tag_wiki(self, tag_name: str):
         return self.danbooru_api.get_tag_wiki(tag_name)
+
+    @staticmethod
+    def get_level_info(total_exp: int) -> (int, int, int):
+        """
+        Calculate the current level, EXP for that level, and the total EXP required to 
+        reach the next level based on total experience points.
+
+        :param total_exp: Total experience points.
+        :return: (current_level, exp_for_current_level, exp_required_for_next_level)
+        """
+        
+        level = 1
+        exp_needed = 250
+
+        while total_exp >= exp_needed:
+            total_exp -= exp_needed
+            level += 1
+            exp_needed += 250
+
+        exp_for_current_level = total_exp
+        exp_required_for_next_level = exp_needed
+
+        return level, exp_for_current_level, exp_required_for_next_level

@@ -2,7 +2,11 @@ import re
 import gradio as gr
 from app import App
 from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, GUIFiltersLabels, DIFFICULTY_LEVEL_EXP_GAIN
-from db_manager import DatabaseManager, DEFAULT_STATE
+from db_manager import DEFAULT_STATE, GUIAlertType, DBResponse, UserFields
+
+DEFAULT_GUEST_WELCOME = ('**👤 Playing as a Guest.** Log in or **sign up** to gain access to **play statistics**, '
+                                '**question history**, and **compete on leaderboards**!'
+)
 
 class GUIProgressObserver:
     def __init__(self, gr_progress):
@@ -15,7 +19,6 @@ class GradioUI:
         self.current_img_tags_and_weights = None
         self.current_img_rating = None
         self.app = app
-        self.db_manager = DatabaseManager()
 
     def generate_question(self, prompt: str, sd_model: str, content_filter_level: str, difficulty: str, gr_progress=gr.Progress()):
         with ObserverContext(self.app.event_handler, GUIProgressObserver(gr_progress)):
@@ -203,47 +206,135 @@ class GradioUI:
         elif choice == "Register":
             return gr.Button.update(visible=False), gr.Button.update(visible=True)
 
+    def ui_display_column(self, display=True):
+        return gr.Column.update(visible=display)
+
     @staticmethod
-    def _account_validate_input(username, password):
+    def _account_register_validate_input(username, password):
         """
         Username Requirements:
 
         Only letters and numbers.
         Minimum of 3 characters.
         Start with 2 letters.
-        Regex: ^[a-zA-Z]{2}[a-zA-Z0-9]{1,}$
+        Maximum of 10 characters.
+        Regex: ^[a-zA-Z]{2}[a-zA-Z0-9]{1,8}$
 
         Password Requirements:
 
         At least 4 characters.
+        Maximum of 30 characters.
         For this, a simple length check will suffice.
         """
-        username_pattern = r"^[a-zA-Z]{2}[a-zA-Z0-9]{1,}$"
+        username_pattern = r"^[a-zA-Z]{2}[a-zA-Z0-9]{1,8}$"
         if not re.match(username_pattern, username):
-            gr.Warning("Username must start with 2 letters, be at least 3 characters long, and contain only letters or numbers.")
+            gr.Warning("Username must start with 2 letters, be between 3 to 10 characters long, and contain only letters or numbers.")
             return False
 
-        if len(password) < 4:
-            gr.Warning("Password must be at least 4 characters long.")
+        if len(password) < 4 or len(password) > 30:
+            gr.Warning("Password must be between 4 to 30 characters long.")
             return False
-        
+
+        return True
+    
+    @staticmethod
+    def _account_login_validate_input(username, password):
+        """
+        Username Requirements:
+        Not empty.
+
+        Password Requirements:
+        Not empty.
+        """
+
+        if not username.strip():
+            gr.Warning("Username cannot be empty.")
+            return False
+
+        if not password.strip():
+            gr.Warning("Password cannot be empty.")
+            return False
+
         return True
 
+    @staticmethod
+    def _handle_db_resp_message(response: DBResponse):
+        if not response or not response.message_type or not response.message:
+            return
+        if response.message_type == GUIAlertType.INFO:
+            gr.Info(response.message)
+        elif response.message_type == GUIAlertType.WARNING:
+            gr.Warning(response.message)
+        elif response.message_type == GUIAlertType.ERROR:
+            raise gr.Error(response.message)
+
     def account_register(self, username: str, password: str, state:dict):
-        if not self._account_validate_input(username, password):
-            return DEFAULT_STATE
-        state = self.db_manager.register(username, password, state)
-        return state
+        response = None
+        if self._account_register_validate_input(username, password):
+            response = self.app.db_manager.register(username, password, state)
+        return self._finalize_login_response(response)
 
     def account_login(self, username: str, password: str, state: dict):
-        state = self.db_manager.login(username, password, state)
-        return state
+        response = None
+        if self._account_login_validate_input(username, password):
+            response = self.app.db_manager.login(username, password, state)
+        return self._finalize_login_response(response)
+
+    def _finalize_login_response(self, response):
+        self._handle_db_resp_message(response)
+        if response is None or response.state[UserFields.NAME] is None:
+            return (
+                DEFAULT_STATE,
+                self.ui_display_column(True),
+                self.ui_display_column(False),
+                *self.ui_clear_main_tab_user_info()
+            )
+        return (
+            response.state, 
+            self.ui_display_column(False),  # account login/register form
+            self.ui_display_column(True),   # account details wrapper
+            *self.ui_update_main_tab_user_info(response.state)
+        )
+
+    def ui_update_main_tab_user_info(self, state):
+        # Extract the values from the state
+        username = state[UserFields.NAME]
+        level, exp_for_current_level, exp_required_for_next_level = self.app.get_level_info(state[UserFields.EXP])
+        accuracy = state[UserFields.ACCURACY]
+        ans_count = state[UserFields.ANS_COUNT]
+
+        # Create the markdown strings
+        user_md = f'👤 Hi there, **{username}**!'
+        exp_md = f"**🏅 Level:** {level} | **✨ XP:** {exp_for_current_level}/{exp_required_for_next_level}"
+        accuracy_md = f"**🎯 Accuracy rating:** {accuracy}%"
+        ans_md = f"**❓ Questions answered:** {ans_count}"
+
+        return (
+            gr.Markdown.update(value=user_md),
+            gr.Markdown.update(value=exp_md, visible=True),
+            gr.Markdown.update(value=accuracy_md, visible=True),
+            gr.Markdown.update(value=ans_md, visible=True)
+        )
+        
+    def ui_clear_main_tab_user_info(self):
+        return (
+            gr.Markdown.update(value=DEFAULT_GUEST_WELCOME),
+            gr.Markdown.update(value=None, visible=False),
+            gr.Markdown.update(value=None, visible=False),
+            gr.Markdown.update(value=None, visible=False)
+        )
 
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
             gr_state = gr.State(value=DEFAULT_STATE)
 
             with gr.Tab('Main'):
+                with gr.Box():
+                    with gr.Row():
+                        main_tab_user_name_md = gr.Markdown(value=(DEFAULT_GUEST_WELCOME))
+                        main_tab_user_exp_md = gr.Markdown(visible=False)
+                        main_tab_user_accuracy_md = gr.Markdown(visible=False)
+                        main_tab_user_questions_count_md = gr.Markdown(visible=False)
                 with gr.Row():
                     custom_prompt = gr.Textbox('whale, deep blue sky, white birds, star, thick clouds', label='Custom prompt')
                     game_difficulty = gr.Radio(
@@ -291,19 +382,24 @@ class GradioUI:
                             
                             generate_btn = gr.Button("Generate New Image")
 
-            with gr.Tab(label='Account') as account_tab:
+            with gr.Tab(label='Account'):
                 with gr.Column(visible=True) as account_credentials_form:
-                    account_forms_radio = gr.Radio([
+                    with gr.Row():
+                        account_forms_radio = gr.Radio([
                         "Login", "Register"], 
-                        label='You are not currently logged in. Please select account action:', 
+                        label='You are not currently logged in.', 
+                        info='Please select account action:',
                         value="Login")
-                    
-                    with gr.Column():
-                        with gr.Row():
-                            account_username_tb = gr.Textbox(label="Username", type="text")
-                            account_password_tb = gr.Textbox(label="Password", type="password")
-                        account_login_btn = gr.Button("Login", visible=True)
-                        account_register_btn = gr.Button("Register", visible=False)
+                        account_input_username_tb = gr.Textbox(label="Username", type="text")
+                        account_input_password_tb = gr.Textbox(label="Password", type="password")
+                    account_login_btn = gr.Button("Login", visible=True)
+                    account_register_btn = gr.Button("Register", visible=False)
+                
+                with gr.Column(visible=False) as account_details_wrapper:
+                    account_username = gr.Markdown()
+                    account_experience = gr.Markdown()
+                    account_questions = gr.Markdown()
+                    account_accuracy = gr.Markdown()
 
             with gr.Tab(label='Settings'):
                 sd_checkpoint = gr.Dropdown(
@@ -345,7 +441,6 @@ class GradioUI:
                         results_wrapper
                     ]
                 )
-
             bind_generate_click_event(generate_btn)
             bind_generate_click_event(on_filtered_generate_new_btn)
 
@@ -394,28 +489,26 @@ class GradioUI:
                 ]
             )
 
-            account_register_btn.click(
-                fn=self.account_register,
-                inputs=[
-                    account_username_tb,
-                    account_password_tb,
-                    gr_state
-                ],
-                outputs=[
-                    gr_state
-                ]
-            )
-
-            account_login_btn.click(
-                fn=self.account_login,
-                inputs=[
-                    account_username_tb,
-                    account_password_tb,
-                    gr_state
-                ],
-                outputs=[
-                    gr_state
-                ]
-            )
+            # Use helper function to bind events
+            def bind_account_auth_click_event(button: gr.Button, fn):
+                button.click(
+                    fn=fn,
+                    inputs=[
+                        account_input_username_tb,
+                        account_input_password_tb,
+                        gr_state
+                    ],
+                    outputs=[
+                        gr_state,
+                        account_credentials_form,
+                        account_details_wrapper,
+                        main_tab_user_name_md,
+                        main_tab_user_exp_md,
+                        main_tab_user_accuracy_md,
+                        main_tab_user_questions_count_md
+                    ]
+                )
+            bind_account_auth_click_event(account_register_btn, self.account_register)
+            bind_account_auth_click_event(account_login_btn, self.account_login)
 
         demo.queue(concurrency_count=20).launch()
