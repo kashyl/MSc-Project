@@ -324,6 +324,34 @@ class GradioUI:
             gr.Markdown.update(value=None, visible=False)
         )
 
+    def account_logout(self, state: dict):
+        state = DEFAULT_STATE   # Reset state to default
+        
+        return (
+            state,                                  # Return empty state
+            self.ui_display_column(True),           # Shows account login/register form
+            self.ui_display_column(False),          # Hides account details wrapper
+            *self.ui_clear_main_tab_user_info(),    # Clear all account details
+        )
+
+    def collect_nested_components(self, component):
+        """Recursively obtain all nested children components from a component."""
+        children_list = []
+
+        # print(f"Current component: {component}") 
+
+        if hasattr(component, 'children') and component.children:
+            # print(f"Children of {component}: {component.children}")
+
+            # Ensure that component.children is iterable (i.e., a list or tuple)
+            children = component.children if isinstance(component.children, (list, tuple)) else [component.children]
+            
+            for child in children:
+                children_list.append(child)
+                children_list.extend(self.collect_nested_components(child))
+
+        return children_list
+
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
             gr_state = gr.State(value=DEFAULT_STATE)
@@ -396,10 +424,40 @@ class GradioUI:
                     account_register_btn = gr.Button("Register", visible=False)
                 
                 with gr.Column(visible=False) as account_details_wrapper:
-                    account_username = gr.Markdown()
-                    account_experience = gr.Markdown()
-                    account_questions = gr.Markdown()
-                    account_accuracy = gr.Markdown()
+                    with gr.Row():
+                        account_welcome_message_md = gr.Markdown('welcome test')
+
+                    with gr.Row():
+                        with gr.Column():
+                            with gr.Box():
+                                account_username = gr.Markdown(value='test')
+                                account_experience = gr.Markdown()
+                                account_questions = gr.Markdown()
+                                account_accuracy = gr.Markdown()
+                        account_past_questions_image_gallery = gr.Gallery()
+                    account_past_questions_dd = gr.Dropdown()
+                    with gr.Row() as account_past_question_wrapper:
+                        with gr.Column():
+                            account_past_question_image = gr.Image()
+                            with gr.Accordion(label="Image Generation Details", open=False) as account_past_question_image_gen_info_wrapper:
+                                account_past_question_image_gen_info = gr.Markdown()
+
+                        with gr.Column():
+                            with gr.Box():
+                                account_past_question_tags_md = gr.Markdown()
+                            account_past_question_tag_search = gr.Dropdown()
+                            with gr.Box():
+                                account_past_question_tag_search_result = gr.Markdown()
+
+                    account_logout_btn = gr.ClearButton(
+                        value="Log out", 
+                        scale=1,
+                        components = [
+                            *self.collect_nested_components(account_details_wrapper),
+                            account_input_username_tb,
+                            account_input_password_tb
+                        ]
+                    )
 
             with gr.Tab(label='Settings'):
                 sd_checkpoint = gr.Dropdown(
@@ -510,5 +568,19 @@ class GradioUI:
                 )
             bind_account_auth_click_event(account_register_btn, self.account_register)
             bind_account_auth_click_event(account_login_btn, self.account_login)
+
+            account_logout_btn.click(
+                fn=self.account_logout,
+                inputs=[gr_state],
+                outputs=[
+                    gr_state,
+                    account_credentials_form,         # Shows back the authentication form
+                    account_details_wrapper,          # Hides account details
+                    main_tab_user_name_md,            # Clears username info
+                    main_tab_user_exp_md,             # Clears experience info
+                    main_tab_user_accuracy_md,        # Clears accuracy info
+                    main_tab_user_questions_count_md  # Clears question count info
+                ]
+            )
 
         demo.queue(concurrency_count=20).launch()
