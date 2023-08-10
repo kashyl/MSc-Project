@@ -364,26 +364,28 @@ class GradioUI:
             - Select and review any of your previously attempted questions.
             """)
 
+    def process_image_and_generate_label(self, question_data, rating_filter):
+        """Generate label and process the image based on the rating filter."""
+        label = f"QID: {question_data[QuestionKeys.ID]}"
+        image_path = question_data[QuestionKeys.IMAGE_FILE_PATH]
+        image_rating = question_data[QuestionKeys.IMAGE_RATING]
+
+        if self.app.content_filter.is_rating_filtered_gui(rating_filter, image_rating):
+            label += f" ({question_data[QuestionKeys.IMAGE_RATING]})"
+            image_path = self.app.content_filter.get_blurred_image_from_path(image_path)
+
+        return image_path, label
+
     def _process_gallery_image(self, args):
         """ Helper function to process each image in parallel."""
         q, app, rating_filter = args  # unpack arguments
-        label = f"QID: {q[QuestionKeys.ID]}"
-        image = q[QuestionKeys.IMAGE_FILE_PATH]
-        image_rating = q[QuestionKeys.IMAGE_RATING]
-
-        # Check if the image should be blurred based on the rating and filter
-        if self.app.content_filter.is_rating_filtered_gui(rating_filter, image_rating):
-            label += f" ({q[QuestionKeys.IMAGE_RATING]})"
-            image = self.app.content_filter.get_blurred_image_from_path(image)
-                        
-        return (image, label)
+        return self.process_image_and_generate_label(q, rating_filter)
 
     def ui_account_update_image_gallery(self, state, rating_filter: str):        
         questions = state[UserState.ATTEMPTED_QUESTIONS]
 
         # Use ThreadPoolExecutor to process images concurrently
         with ThreadPoolExecutor() as executor:
-            # Passing the app and rating_filter as well to process_image
             args_list = [(q, self.app, rating_filter) for q in questions]
             gallery_data = list(executor.map(self._process_gallery_image, args_list))
                     
@@ -401,36 +403,43 @@ class GradioUI:
         
         return gr.Dropdown.update(choices=dd_choices)
 
+    @staticmethod
+    def _extract_question_id(question_string: str) -> int:
+        match = re.search(r"Question ID: (\d+)", question_string)
+        if match:
+            return int(match.group(1))
+        else:
+            raise ValueError(f"Invalid question string format: {question_string}")
+
     def ui_account_update_selected_previous_question_details(self, state, selected_question, rating_filter):
-        def extract_question_id(question_string: str) -> int:
-            match = re.search(r"Question ID: (\d+)", question_string)
-            if match:
-                return int(match.group(1))
-            else:
-                raise ValueError(f"Invalid question string format: {question_string}")
-        
-        question_data = self.app.db_manager.fetch_question(extract_question_id(selected_question))
+        if selected_question is None:
+            return (
+                gr.Box.update(visible=False),
+                gr.Image.update(value=None, label=None),
+                gr.Markdown.update(value=None),
+                gr.Markdown.update(value=None),
+                gr.Dropdown.update(choices=None)
+            )
+
+        question_data = self.app.db_manager.fetch_question(self._extract_question_id(selected_question))
 
         return (
             gr.Box.update(visible=True),     # for account_past_question_wrapper
             self.ui_update_past_question_image(question_data, rating_filter),
-            self.ui_update_past_question_tags(state, question_data)
+            self.ui_update_past_question_image_generation_info(question_data),
+            self.ui_update_past_question_tags(state, question_data),
+            self.ui_update_past_question_tag_wiki_search(question_data)
         )
-        # return the tags of the image in a markdown
-        #   format the markdown so it has Correct tags, Incorrect tags, and Selected tags
-        #   If the selected tag is correct, color green. If incorrect, color red.
         # display tag search dropdown with list of all image tags
 
     def ui_update_past_question_image(self, question_data, rating_filter):
-        image_path = question_data[QuestionKeys.IMAGE_FILE_PATH]
-        image_rating = question_data[QuestionKeys.IMAGE_RATING]
         label = f"Question {question_data[QuestionKeys.ID]}"
 
-        if self.app.content_filter.is_rating_filtered_gui(rating_filter, image_rating):
-            image_path = self.app.content_filter.get_blurred_image_from_path(image_path)
-            label += f" (rating: {image_rating})"
+        image, label = self.process_image_and_generate_label(question_data, rating_filter)
+        return gr.Image.update(value=image, label=label)
 
-        return gr.Image.update(value=image_path, label=label)
+    def ui_update_past_question_image_generation_info(self, question_data):
+        return gr.Markdown.update(value=question_data[QuestionKeys.GENERATION_INFO])
 
     def ui_update_past_question_tags(self, state, question_data):
         # 1. Extract the correct and false tags from the question_data.
@@ -458,10 +467,62 @@ class GradioUI:
 
         return gr.Markdown.update(value=md_string)
 
+    def ui_update_past_question_tag_wiki_search(self, question_data):
+        # Extract tags (both correct and false) from the question data
+        correct_tags = self.app.tag_names_only(question_data[QuestionKeys.CORRECT_TAGS])
+        false_tags = self.app.tag_names_only(question_data[QuestionKeys.FALSE_TAGS])
+
+        # Populate the dropdown with combined tags
+        all_tags = list(set(correct_tags + false_tags))
+        return gr.Dropdown.update(choices=all_tags)
+
+    def ui_update_past_question_tag_wiki_result(self, tag_name: str):
+        if tag_name is None:
+            return (
+                gr.Markdown.update(value=None, visible=False),  # result markdown
+                gr.Box.update(visible=False) 
+            )
+        # Retrieve tag info
+        tag_title, tag_info = self.app.get_tag_wiki(tag_name)
+
+        if not tag_info:
+            no_info_msg = f"Couldn't retrieve information for the tag **{tag_name}**."
+            return gr.Markdown.update(value=no_info_msg, visible=True)
+
+        # Prepend the tag_title to the tag_info
+        full_info = f"## {tag_title}\n\n{tag_info}"
+        return (
+            gr.Markdown.update(value=full_info, visible=True),  # result markdown
+            gr.Box.update(visible=True)                         # box wrapper
+        )
+
+    def ui_handle_rating_filter_update(self, rating_filter, state, selected_question):
+        """ Update past question gallery and image on content filter radio change. """
+
+        if state == get_default_state():  # if user not logged in
+            return (
+                gr.Gallery.update(value=None),
+                gr.Image.update(value=None, label=None)
+            )
+        
+        # Update for the gallery remains consistent
+        gallery_update = self.ui_account_update_image_gallery(state, rating_filter)
+
+        # check if there's a valid selected question
+        if selected_question:
+            question_data = self.app.db_manager.fetch_question(self._extract_question_id(selected_question))
+            image_update = self.ui_update_past_question_image(question_data=question_data, rating_filter=rating_filter)
+        else:
+            # if no selected question, then default image update
+            image_update = gr.Image.update(value=None, label=None)
+            
+        return gallery_update, image_update
+
     def account_logout(self, state: dict):
         # All the components in the account details wrapper should be cleared
         # on "Log out" ClearButton.click(), so no need to take care of them here
         logger.info(f'User "{state[UserState.NAME]}" has logged out.')
+        gr.Info('Logged out.')
         state = get_default_state()   # Reset state to default
         return (
             state,
@@ -585,8 +646,12 @@ class GradioUI:
                             with gr.Column():
                                 with gr.Box():
                                     account_past_question_tags_md = gr.Markdown()
-                                account_past_question_tag_search = gr.Dropdown()
-                                with gr.Box():
+                                account_past_question_tag_search = gr.Dropdown(
+                                        allow_custom_value=False, 
+                                        multiselect=False,
+                                        label="Tag Details Lookup",
+                                        info="Select a tag to retrieve its detailed description from the tag wiki.")
+                                with gr.Box(visible=False) as past_question_tag_result_wrapper:
                                     account_past_question_tag_search_result = gr.Markdown()
                     with gr.Row():
                         with gr.Column(scale=3):
@@ -758,7 +823,31 @@ class GradioUI:
                 outputs=[
                     account_past_question_wrapper,
                     account_past_question_image,
-                    account_past_question_tags_md
+                    account_past_question_image_gen_info,
+                    account_past_question_tags_md,
+                    account_past_question_tag_search
+                ]
+            )
+
+            account_past_question_tag_search.change(
+                fn=self.ui_update_past_question_tag_wiki_result,
+                inputs=account_past_question_tag_search,
+                outputs=[
+                    account_past_question_tag_search_result,
+                    past_question_tag_result_wrapper
+                ]
+            )
+
+            content_filter_rating.change(
+                fn=self.ui_handle_rating_filter_update,
+                inputs=[
+                    content_filter_rating,
+                    gr_state,
+                    account_past_questions_selector_dd
+                ],
+                outputs=[
+                    account_past_questions_image_gallery,
+                    account_past_question_image
                 ]
             )
 
