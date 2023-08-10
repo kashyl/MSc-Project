@@ -1,4 +1,5 @@
-import asyncio, aiohttp, random, re
+import asyncio, aiohttp, random, re, os
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from math import floor
@@ -6,11 +7,12 @@ from typing import List, Tuple
 
 from custom_logging import logger
 from sd_api_wrapper import generate_image as sd_generate_image, get_progress, mock_generate_image
-from shared import SDModels, EventHandler, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, DIFFICULTY_LEVEL_TAG_RATIO, DIFFICULTY_LEVEL_EXP_GAIN
+from shared import (SDModels, EventHandler, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, 
+                    DIFFICULTY_LEVEL_TAG_RATIO, DIFFICULTY_LEVEL_EXP_GAIN, IMG_DIR)
 from wd14_tagging.wd14_tagging import WD14Tagger
 from content_filter import ContentFilter
 from danbooru_api_wrapper import DanbooruApi
-from db_manager import DatabaseManager, DEFAULT_STATE, DBResponse, GUIAlertType, UserFields
+from db_manager import DatabaseManager, tags_to_json, json_to_tags
 
 DEBUG_MOCK_GEN_INFO = [
     'Steps: 30',
@@ -30,6 +32,7 @@ class App:
     def __init__(self, debug_mock_image=False, debug_mock_tags=False):
         self._image = None
         self._image_gen_info = None
+        self._image_gen_time = None
         self._image_is_filtered = False
         self._difficulty_level = None
         self._submitted_tags = None
@@ -52,6 +55,7 @@ class App:
     def _clear_round_data(self):
         self._image = None
         self._image_gen_info = None
+        self._image_gen_time = None
         self._image_is_filtered = None
         self._difficulty_level = None
         self._submitted_tags = None
@@ -115,6 +119,9 @@ class App:
     def _set_image_generation_info(self, sd_gen_info):
         self._image_gen_info = sd_gen_info
 
+    def _set_image_generation_time(self):
+        self._image_gen_time = datetime.now()
+
     def _extract_image_generation_info(self):
         data = self.image.info.items()
         data_string = ' '.join(map(str, data)).strip("')")  # Convert tuple into string
@@ -144,6 +151,10 @@ class App:
     @property
     def image_gen_info(self):
         return ', '.join(self._image_gen_info)
+
+    @property
+    def image_gen_time(self):
+        return self._image_gen_time
 
     @property
     def image_is_filtered(self):
@@ -259,6 +270,7 @@ class App:
     def _mock_gen_image(self, *args):
         self._set_image(mock_generate_image())    # get mock image for debugging
         self._set_image_generation_info(DEBUG_MOCK_GEN_INFO)
+        self._set_image_generation_time()
 
     def _mock_gen_tags(self, *args):
         self.wd14_tagger.mock_generate_tags()
@@ -271,7 +283,7 @@ class App:
         self._generate_tags_func()
         self._apply_image_rating_filter(content_filter_level)
 
-    def submit_selected_tags(self, selected_tags_list: list):
+    def submit_answer(self, selected_tags_list: list, username=None) -> None:
         self._set_submitted_tags(selected_tags_list)
 
         logger.info(
@@ -279,6 +291,49 @@ class App:
             f'Incorrect answers: {len(self.incorrect_answers)}. '
             f'Net Points: {self.gained_points}'
         )
+
+        if username:
+            saved_path = self._save_current_image()
+            question_id = self._store_question_data(file_path=saved_path)
+            self._update_user_data(username, question_id)
+
+    def _update_user_data(self, username: str, question_id: int):
+        # Add the stored question to the attempted questions list of the user
+        self.db_manager.add_attempted_question(username, question_id, self._submitted_tags)
+
+        # # Update the user accuracy
+        self.db_manager.update_user_accuracy(username)
+
+        # # Increment the user experience with self.gained_exp
+        self.db_manager.increment_user_experience(username, self.gained_exp)
+
+    def _save_current_image(self) -> str:    
+        def uniquify(path: str) -> str:
+            filename, extension = os.path.splitext(path)
+            counter = 1
+            while os.path.exists(path):
+                path = filename + f" ({counter})" + extension
+                counter += 1
+            return path
+
+        filename = f"img_{datetime.now().strftime('%Y%m%d%H%M%S')}.png"
+        file_path = os.path.join(IMG_DIR, filename)
+        unique_file_path = uniquify(file_path)
+        self.original_image.save(unique_file_path)
+        logger.info(f'Image saved: {unique_file_path}')
+        return unique_file_path
+
+    def _store_question_data(self, file_path: str) -> int:
+        """ Store the question data in the database. """
+        question = self.db_manager.store_question(
+            image_file_path=file_path,
+            generation_info=self.image_gen_info,
+            image_rating=self.image_rating,
+            correct_tags=tags_to_json(self.image_tags),
+            false_tags=tags_to_json(self.false_tags),
+            generation_time=self.image_gen_time
+        )
+        return question.id
 
     def create_points_calculators(self) -> tuple:
         """

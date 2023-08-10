@@ -5,14 +5,6 @@ from custom_logging import logger, log_function_call
 from typing import Dict, Any, List, Tuple, Optional
 import aiohttp
 
-def uniquify(path: str) -> str:
-    filename, extension = os.path.splitext(path)
-    counter = 1
-    while os.path.exists(path):
-        path = filename + " (" + str(counter) + ")" + extension
-        counter += 1
-    return path
-
 def extract_base64(encoding: str) -> str:
     if encoding.startswith("data:image/"):
         encoding = encoding.split(";")[1].split(",")[1]
@@ -43,13 +35,6 @@ def add_generation_metadata(image: Image.Image, metadata: str) -> Image.Image:
     # Convert bytes back to a PIL Image object
     image_with_metadata = Image.open(output)
     return image_with_metadata
-
-def save_image(image: Image.Image) -> None:    
-    timestr = time.strftime("%Y%m%d-%H%M%S")
-    file_path = os.path.join(OUTPUT_DIR, f'{timestr}.png')
-    file_path = uniquify(file_path)
-    image.save(file_path)
-    logger.info(f'Image saved: {file_path}')
 
 def get_first_image():
     """For debugging"""

@@ -1,8 +1,10 @@
 import re
 import gradio as gr
+from datetime import datetime
 from app import App
 from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, GUIFiltersLabels, DIFFICULTY_LEVEL_EXP_GAIN
-from db_manager import DEFAULT_STATE, GUIAlertType, DBResponse, UserFields
+from db_manager import GUIAlertType, DBResponse, UserState, QuestionKeys, get_default_state
+from custom_logging import logger
 
 DEFAULT_GUEST_WELCOME = ('**👤 Playing as a Guest.** Log in or **sign up** to gain access to **play statistics**, '
                                 '**question history**, and **compete on leaderboards**!'
@@ -94,9 +96,16 @@ class GradioUI:
         display_btn = override_display if override_display is not None else not self.app.image_is_filtered
         return gr.Button.update(visible=display_btn)
 
-    def on_submit(self, selected_tags: list):
-        self.app.submit_selected_tags(selected_tags)
+    def on_submit(self, state: dict, selected_tags: list):
+        state_user = state[UserState.NAME]
+        if state_user:
+            self.app.submit_answer(selected_tags_list=selected_tags, username=state_user)
+            state = self.app.db_manager.get_user_state(state, user_model_or_name=state_user)
+        else:
+            self.app.submit_answer(selected_tags_list=selected_tags)
+        
         return (
+            state,
             self.ui_update_submit_btn_display(False),
             self.ui_show_image_tags(False),
             self.ui_show_results_wrapper(),
@@ -104,7 +113,8 @@ class GradioUI:
             self.ui_update_tag_wiki_search(),
             self.ui_clear_tag_wiki_result(),
             self.ui_show_tag_wiki_result_wrapper(False),
-            self.ui_update_generate_btn_display(True)
+            self.ui_update_generate_btn_display(True),
+            *self.ui_update_user_account_information(state)
         ) 
 
     def ui_show_results_wrapper(self, display=True):
@@ -282,32 +292,50 @@ class GradioUI:
 
     def _finalize_login_response(self, response):
         self._handle_db_resp_message(response)
-        if response is None or response.state[UserFields.NAME] is None:
+        if response is None or response.state == get_default_state():
             return (
-                DEFAULT_STATE,
+                get_default_state(),
                 self.ui_display_column(True),
                 self.ui_display_column(False),
-                *self.ui_clear_main_tab_user_info()
+                *self.ui_clear_user_account_information()
             )
         return (
             response.state, 
-            self.ui_display_column(False),  # account login/register form
-            self.ui_display_column(True),   # account details wrapper
-            *self.ui_update_main_tab_user_info(response.state)
+            self.ui_display_column(False),                              # account login/register form
+            self.ui_display_column(True),                               # account details wrapper
+            *self.ui_update_user_account_information(response.state)
         )
 
-    def ui_update_main_tab_user_info(self, state):
+    def ui_update_user_account_information(self, state: dict):
+        if state == get_default_state():
+            return self.ui_clear_user_account_information()
+        return (
+            *self.ui_account_update_user_stats(state),                  # for the main tab
+            *self.ui_account_update_user_stats(state),                  # for the account details
+            self.ui_account_update_image_gallery(state),                # for the account image history gallery
+            self.ui_account_update_question_history_selector(state)     # for the question history selector dropdown
+        )
+
+    def ui_clear_user_account_information(self):
+        return (
+            *self.ui_reset_main_tab_user_info(),                    # for the main tab
+            *[gr.Markdown.update(value=None) for _ in range(4)],    # for the account details
+            gr.Gallery.update(value=None),                          # for the account image history gallery
+            gr.Dropdown.update(choices=None)                        # for the question history selector dropdown
+        )
+
+    def ui_account_update_user_stats(self, state):
         # Extract the values from the state
-        username = state[UserFields.NAME]
-        level, exp_for_current_level, exp_required_for_next_level = self.app.get_level_info(state[UserFields.EXP])
-        accuracy = state[UserFields.ACCURACY]
-        ans_count = state[UserFields.ANS_COUNT]
+        username = state[UserState.NAME]
+        level, exp_for_current_level, exp_required_for_next_level = self.app.get_level_info(state[UserState.EXP])
+        accuracy = state[UserState.ACCURACY]
+        ans_count = state[UserState.ATTEMPTED_COUNT]
 
         # Create the markdown strings
-        user_md = f'👤 Hi there, **{username}**!'
+        user_md = f'👤 Logged in as **{username}**'
         exp_md = f"**🏅 Level:** {level} | **✨ XP:** {exp_for_current_level}/{exp_required_for_next_level}"
         accuracy_md = f"**🎯 Accuracy rating:** {accuracy}%"
-        ans_md = f"**❓ Questions answered:** {ans_count}"
+        ans_md = f"**❓ Questions attempted:** {ans_count}"
 
         return (
             gr.Markdown.update(value=user_md),
@@ -316,25 +344,43 @@ class GradioUI:
             gr.Markdown.update(value=ans_md, visible=True)
         )
         
-    def ui_clear_main_tab_user_info(self):
+    def ui_reset_main_tab_user_info(self):
         return (
             gr.Markdown.update(value=DEFAULT_GUEST_WELCOME),
-            gr.Markdown.update(value=None, visible=False),
-            gr.Markdown.update(value=None, visible=False),
-            gr.Markdown.update(value=None, visible=False)
+            *[gr.Markdown.update(value=None, visible=False) for _ in range(3)]
         )
+
+    def ui_account_update_image_gallery(self, state):
+        questions = state[UserState.ATTEMPTED_QUESTIONS]
+        # Create a list of tuples containing (image_file_path, label) for each question
+        gallery_data = [(q[QuestionKeys.IMAGE_FILE_PATH], f"QID: {q[QuestionKeys.ID]}") for q in questions]
+        return gr.Gallery.update(value=gallery_data)
+
+    def ui_account_update_question_history_selector(self, state):
+        questions = state[UserState.ATTEMPTED_QUESTIONS]
+        
+        # Format date and time for each question
+        dd_choices = [
+            f'Question ID: {q[QuestionKeys.ID]}, '
+            f'Attempted on: {q[QuestionKeys.ATTEMPTED_TIME].strftime("%Y-%m-%d %H:%M:%S")}'
+            for q in questions
+        ]
+        
+        return gr.Dropdown.update(choices=dd_choices)
 
     def account_logout(self, state: dict):
-        state = DEFAULT_STATE   # Reset state to default
-        
+        # All the components in the account details wrapper should be cleared
+        # on "Log out" ClearButton.click(), so no need to take care of them here
+        logger.info(f'User "{state[UserState.NAME]}" has logged out.')
+        state = get_default_state()   # Reset state to default
         return (
-            state,                                  # Return empty state
+            state,
             self.ui_display_column(True),           # Shows account login/register form
             self.ui_display_column(False),          # Hides account details wrapper
-            *self.ui_clear_main_tab_user_info(),    # Clear all account details
+            *self.ui_reset_main_tab_user_info(),    # Clear all account details
         )
 
-    def collect_nested_components(self, component):
+    def _collect_nested_components(self, component):
         """Recursively obtain all nested children components from a component."""
         children_list = []
 
@@ -348,13 +394,13 @@ class GradioUI:
             
             for child in children:
                 children_list.append(child)
-                children_list.extend(self.collect_nested_components(child))
+                children_list.extend(self._collect_nested_components(child))
 
         return children_list
 
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
-            gr_state = gr.State(value=DEFAULT_STATE)
+            gr_state = gr.State(value=get_default_state())
 
             with gr.Tab('Main'):
                 with gr.Box():
@@ -418,46 +464,49 @@ class GradioUI:
                         label='You are not currently logged in.', 
                         info='Please select account action:',
                         value="Login")
-                        account_input_username_tb = gr.Textbox(label="Username", type="text")
-                        account_input_password_tb = gr.Textbox(label="Password", type="password")
+                        account_input_username_tb = gr.Textbox(label="Username", type="text", interactive=True)
+                        account_input_password_tb = gr.Textbox(label="Password", type="password", interactive=True)
                     account_login_btn = gr.Button("Login", visible=True)
                     account_register_btn = gr.Button("Register", visible=False)
                 
                 with gr.Column(visible=False) as account_details_wrapper:
                     with gr.Row():
-                        account_welcome_message_md = gr.Markdown('welcome test')
-
-                    with gr.Row():
                         with gr.Column():
                             with gr.Box():
-                                account_username = gr.Markdown(value='test')
+                                account_username = gr.Markdown()
                                 account_experience = gr.Markdown()
                                 account_questions = gr.Markdown()
                                 account_accuracy = gr.Markdown()
-                        account_past_questions_image_gallery = gr.Gallery()
-                    account_past_questions_dd = gr.Dropdown()
-                    with gr.Row() as account_past_question_wrapper:
-                        with gr.Column():
-                            account_past_question_image = gr.Image()
-                            with gr.Accordion(label="Image Generation Details", open=False) as account_past_question_image_gen_info_wrapper:
-                                account_past_question_image_gen_info = gr.Markdown()
-
-                        with gr.Column():
-                            with gr.Box():
-                                account_past_question_tags_md = gr.Markdown()
-                            account_past_question_tag_search = gr.Dropdown()
-                            with gr.Box():
-                                account_past_question_tag_search_result = gr.Markdown()
-
-                    account_logout_btn = gr.ClearButton(
-                        value="Log out", 
-                        scale=1,
-                        components = [
-                            *self.collect_nested_components(account_details_wrapper),
-                            account_input_username_tb,
-                            account_input_password_tb
-                        ]
-                    )
+                            account_past_questions_selector_dd = gr.Dropdown(
+                                label='Question History', 
+                                info='Select a previous question to review its related image and tags.',
+                                interactive=True,
+                                allow_custom_value=False
+                                )
+                        account_past_questions_image_gallery = gr.Gallery(label='Generated Images History', columns=3)
+                    with gr.Box(visible=False) as account_past_question_wrapper:
+                        with gr.Row():
+                            with gr.Column():
+                                account_past_question_image = gr.Image(show_download_button='True', show_share_button='True')
+                                with gr.Accordion(label="Generation Details", open=False) as account_past_question_image_gen_info_wrapper:
+                                    account_past_question_image_gen_info = gr.Markdown()
+                            with gr.Column():
+                                with gr.Box():
+                                    account_past_question_tags_md = gr.Markdown()
+                                account_past_question_tag_search = gr.Dropdown()
+                                with gr.Box():
+                                    account_past_question_tag_search_result = gr.Markdown()
+                    with gr.Row():
+                        with gr.Column(scale=3):
+                            pass
+                        account_logout_btn = gr.ClearButton(
+                            value="Log out",
+                            components = [
+                                *self._collect_nested_components(account_details_wrapper),
+                                account_input_username_tb,
+                                account_input_password_tb,
+                            ]
+                        )
 
             with gr.Tab(label='Settings'):
                 sd_checkpoint = gr.Dropdown(
@@ -514,10 +563,33 @@ class GradioUI:
                 ]
             )
 
+            main_tab_user_details_components = [
+                main_tab_user_name_md,
+                main_tab_user_exp_md,
+                main_tab_user_accuracy_md,
+                main_tab_user_questions_count_md
+            ]
+            account_tab_user_details_components = [
+                account_username,
+                account_experience,
+                account_accuracy,
+                account_questions
+            ]
+            user_data_components = [
+                *main_tab_user_details_components,
+                *account_tab_user_details_components,
+                account_past_questions_image_gallery,
+                account_past_questions_selector_dd,
+            ]
+
             submit_btn.click(
                 fn=self.on_submit, 
-                inputs=image_tags, 
+                inputs=[
+                    gr_state,
+                    image_tags
+                ],
                 outputs=[
+                    gr_state,
                     submit_btn,
                     image_tags,
                     results_wrapper,
@@ -525,7 +597,8 @@ class GradioUI:
                     results_tag_wiki_search_dropdown,
                     results_tag_wiki_result_md,
                     results_tag_wiki_result_md_wrapper,
-                    generate_btn
+                    generate_btn,
+                    *user_data_components
                 ]
             )
 
@@ -560,10 +633,7 @@ class GradioUI:
                         gr_state,
                         account_credentials_form,
                         account_details_wrapper,
-                        main_tab_user_name_md,
-                        main_tab_user_exp_md,
-                        main_tab_user_accuracy_md,
-                        main_tab_user_questions_count_md
+                        *user_data_components
                     ]
                 )
             bind_account_auth_click_event(account_register_btn, self.account_register)
@@ -572,14 +642,14 @@ class GradioUI:
             account_logout_btn.click(
                 fn=self.account_logout,
                 inputs=[gr_state],
-                outputs=[
+                outputs=[                             # Account Details will be auto cleared by ClearButton.click()
                     gr_state,
                     account_credentials_form,         # Shows back the authentication form
                     account_details_wrapper,          # Hides account details
-                    main_tab_user_name_md,            # Clears username info
-                    main_tab_user_exp_md,             # Clears experience info
-                    main_tab_user_accuracy_md,        # Clears accuracy info
-                    main_tab_user_questions_count_md  # Clears question count info
+                    main_tab_user_name_md,            # Clears the main tab username info
+                    main_tab_user_exp_md,             # Clears the main tab experience info
+                    main_tab_user_accuracy_md,        # Clears the main tab accuracy info
+                    main_tab_user_questions_count_md  # Clears the main tab question count info
                 ]
             )
 
