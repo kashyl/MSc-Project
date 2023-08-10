@@ -112,6 +112,33 @@ class DatabaseManager():
 
         return state
     
+    def fetch_leaderboard_data_for_user(self, user):
+        # Calculate accuracy
+        accuracy_val = self.calculate_user_accuracy(user)
+        formatted_accuracy = self.format_accuracy_val(accuracy_val)
+
+        # Calculate attempted questions count
+        attempted_questions = self.fetch_attempted_questions(user.username)
+        attempted_count = len(attempted_questions)
+
+        return [
+            user.username,
+            user.experience,
+            formatted_accuracy,
+            attempted_count
+        ]
+    
+    def fetch_all_users_leaderboard_data(self):
+        """ Order by total experience points. """
+        users = UserModel.select().order_by(UserModel.experience.desc())
+        leaderboard_data = []
+
+        for user in users:
+            user_data = self.fetch_leaderboard_data_for_user(user)
+            leaderboard_data.append(user_data)
+
+        return leaderboard_data
+
     def register(self, username, password, state):
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
         try:

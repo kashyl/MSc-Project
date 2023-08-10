@@ -515,7 +515,7 @@ class GradioUI:
         else:
             # if no selected question, then default image update
             image_update = gr.Image.update(value=None, label=None)
-            
+
         return gallery_update, image_update
 
     def account_logout(self, state: dict):
@@ -548,6 +548,36 @@ class GradioUI:
                 children_list.extend(self._collect_nested_components(child))
 
         return children_list
+
+    def fetch_leaderboard_data(self):
+        leaderboard_data_raw = self.app.db_manager.fetch_all_users_leaderboard_data()
+        
+        # Adjust the data for proper representation in the leaderboard
+        leaderboard_data_adjusted = []
+
+        for user_data in leaderboard_data_raw:
+            experience = user_data[1]  # Extract the experience value
+
+            # Get the level info for the user's experience
+            level, _, _ = self.app.get_level_info(experience)
+
+            # Extract and convert accuracy to float
+            accuracy_str = user_data[2]
+            accuracy_float = float(accuracy_str.strip('%'))
+
+            # Reconstruct the user's data with adjusted values
+            adjusted_data = [
+                user_data[0],       # User
+                level,              # Level
+                accuracy_float,     # Accuracy
+                user_data[3]        # Questions
+            ]
+
+            leaderboard_data_adjusted.append(adjusted_data)
+
+        last_updated_msg=f"<span style='color: grey;'>Last updated at {datetime.now().strftime('%H:%M:%S')}</span>"
+
+        return leaderboard_data_adjusted, gr.Markdown.update(value=last_updated_msg)
 
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
@@ -664,6 +694,32 @@ class GradioUI:
                                 account_input_password_tb,
                             ]
                         )
+
+            with gr.Tab(label='Leaderboard'):
+                with gr.Row():
+                    with gr.Column(scale=7):
+                        gr.Markdown(
+                            '''
+                            ## Leaderboard 
+                            The top 100 players by level will be showcased here. 
+                            The leaderboard updates automatically as you progress. 
+                            Alternatively, you can manually update it by pressing the Refresh button.
+                            '''
+                        )
+
+                    with gr.Box():
+                        leaderboard_last_updated_msg = gr.Markdown(
+                            value=f"<span style='color: grey;'>Last updated at {datetime.now().strftime('%H:%M:%S')}</span>"
+                        )
+                    leaderboard_refresh_btn = gr.Button('Refresh')
+                leaderboard = gr.Dataframe(
+                    headers=['👤 User', '🏅 Level', '🎯 Accuracy', '❓ Questions Answered'],
+                    datatype=["str", "number", "number", "number"],
+                    col_count=(4, 'fixed'),
+                    max_rows=100,   # show top 100 players
+                    interactive=False,
+                    value=lambda: self.fetch_leaderboard_data()[0],
+                )
 
             with gr.Tab(label='Settings'):
                 sd_checkpoint = gr.Dropdown(
@@ -849,6 +905,16 @@ class GradioUI:
                     account_past_questions_image_gallery,
                     account_past_question_image
                 ]
+            )
+
+            leaderboard_refresh_btn.click(
+                fn=self.fetch_leaderboard_data,
+                outputs=[leaderboard, leaderboard_last_updated_msg]
+            )
+
+            main_tab_user_exp_md.change(
+                fn=self.fetch_leaderboard_data,
+                outputs=[leaderboard, leaderboard_last_updated_msg]
             )
 
         demo.queue(concurrency_count=20).launch()
