@@ -150,10 +150,35 @@ class DatabaseManager():
         # If needed, could add checks to validate if user has access to question data
         try:
             question = QuestionModel.get(QuestionModel.id == question_id)
-            return question
+            question_data = {
+                QuestionKeys.ID: question.id,
+                QuestionKeys.IMAGE_FILE_PATH: question.image_file_path,
+                QuestionKeys.GENERATION_INFO: question.generation_info,
+                QuestionKeys.IMAGE_RATING: question.image_rating,
+                QuestionKeys.CORRECT_TAGS: json_to_tags(question.correct_tags),
+                QuestionKeys.FALSE_TAGS: json_to_tags(question.false_tags),
+                QuestionKeys.GENERATION_TIME: question.generation_time
+            }   
+            return question_data
         except QuestionModel.DoesNotExist:
             logger.info(f'Question with ID {question_id} not found.')
             return None
+
+    def fetch_question_user_answers(self, question_id: int, username: str):
+        try:
+            user = UserModel.get(UserModel.username == username)
+            user_question_relation = UserQuestionRelation.get(
+                (UserQuestionRelation.user == user) &
+                (UserQuestionRelation.question == question_id)
+            )
+            selected_tags = json.loads(user_question_relation.user_answers)  # assuming it's a list of tags
+            return selected_tags
+        except UserModel.DoesNotExist:
+            logger.error(f'User "{username}" not found in the database.')
+            return []
+        except UserQuestionRelation.DoesNotExist:
+            logger.info(f'User "{username}" did not attempt Question {question_id}.')
+            return []
 
     def add_attempted_question(self, user_username, question_id, user_answers=None):
         user = UserModel.get(UserModel.username == user_username)

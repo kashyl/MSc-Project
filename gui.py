@@ -368,15 +368,15 @@ class GradioUI:
         """ Helper function to process each image in parallel."""
         q, app, rating_filter = args  # unpack arguments
         label = f"QID: {q[QuestionKeys.ID]}"
-        image_path = q[QuestionKeys.IMAGE_FILE_PATH]
+        image = q[QuestionKeys.IMAGE_FILE_PATH]
         image_rating = q[QuestionKeys.IMAGE_RATING]
 
         # Check if the image should be blurred based on the rating and filter
         if self.app.content_filter.is_rating_filtered_gui(rating_filter, image_rating):
             label += f" ({q[QuestionKeys.IMAGE_RATING]})"
-            image_path = self.app.content_filter.get_blurred_image_from_path(image_path)
+            image = self.app.content_filter.get_blurred_image_from_path(image)
                         
-        return (image_path, label)
+        return (image, label)
 
     def ui_account_update_image_gallery(self, state, rating_filter: str):        
         questions = state[UserState.ATTEMPTED_QUESTIONS]
@@ -400,6 +400,63 @@ class GradioUI:
         ]
         
         return gr.Dropdown.update(choices=dd_choices)
+
+    def ui_account_update_selected_previous_question_details(self, state, selected_question, rating_filter):
+        def extract_question_id(question_string: str) -> int:
+            match = re.search(r"Question ID: (\d+)", question_string)
+            if match:
+                return int(match.group(1))
+            else:
+                raise ValueError(f"Invalid question string format: {question_string}")
+        
+        question_data = self.app.db_manager.fetch_question(extract_question_id(selected_question))
+
+        return (
+            gr.Box.update(visible=True),     # for account_past_question_wrapper
+            self.ui_update_past_question_image(question_data, rating_filter),
+            self.ui_update_past_question_tags(state, question_data)
+        )
+        # return the tags of the image in a markdown
+        #   format the markdown so it has Correct tags, Incorrect tags, and Selected tags
+        #   If the selected tag is correct, color green. If incorrect, color red.
+        # display tag search dropdown with list of all image tags
+
+    def ui_update_past_question_image(self, question_data, rating_filter):
+        image_path = question_data[QuestionKeys.IMAGE_FILE_PATH]
+        image_rating = question_data[QuestionKeys.IMAGE_RATING]
+        label = f"Question {question_data[QuestionKeys.ID]}"
+
+        if self.app.content_filter.is_rating_filtered_gui(rating_filter, image_rating):
+            image_path = self.app.content_filter.get_blurred_image_from_path(image_path)
+            label += f" (rating: {image_rating})"
+
+        return gr.Image.update(value=image_path, label=label)
+
+    def ui_update_past_question_tags(self, state, question_data):
+        # 1. Extract the correct and false tags from the question_data.
+        correct_tags = question_data[QuestionKeys.CORRECT_TAGS]
+        false_tags = question_data[QuestionKeys.FALSE_TAGS]
+        question_id = question_data[QuestionKeys.ID]
+        username = state[UserState.NAME]
+
+        # 2. Fetch the selected tags for that question by the user.
+        selected_tags = self.app.db_manager.fetch_question_user_answers(question_id=question_id, username=username)
+
+        # Formatting the markdown
+        md_string = "### Correct Tags\n"
+        md_string += ", ".join([f"<b>{tag}</b> <span style='color: gray;'>({weight})</span>" for tag, weight in correct_tags])
+        md_string += "\n\n### False Tags\n"
+        md_string += ", ".join([f"<b>{tag}</b> <span style='color: gray;'>({weight})</span>" for tag, weight in false_tags])
+        md_string += "\n\n### Selected Tags\n"
+        
+        if selected_tags:
+            md_string += ", ".join([f"<span style='color: green;'>{tag}</span>" if tag in [ct[0] for ct in correct_tags] else 
+                                    f"<span style='color: red;'>{tag}</span>" if tag in [ft[0] for ft in false_tags] else tag 
+                                    for tag in selected_tags])
+        else:
+            md_string += "No tags selected."
+
+        return gr.Markdown.update(value=md_string)
 
     def account_logout(self, state: dict):
         # All the components in the account details wrapper should be cleared
@@ -691,15 +748,18 @@ class GradioUI:
                 ]
             )
 
-            # account_past_questions_selector_dd.change(
-            #     fn=,
-            #     inputs=[
-            #         account_past_questions_selector_dd,
-            #         content_filter_rating
-            #     ],
-            #     outputs=[
-
-            #     ]
-            # )
+            account_past_questions_selector_dd.change(
+                fn=self.ui_account_update_selected_previous_question_details,
+                inputs=[
+                    gr_state,
+                    account_past_questions_selector_dd,
+                    content_filter_rating
+                ],
+                outputs=[
+                    account_past_question_wrapper,
+                    account_past_question_image,
+                    account_past_question_tags_md
+                ]
+            )
 
         demo.queue(concurrency_count=20).launch()
