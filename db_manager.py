@@ -58,7 +58,6 @@ class UserModel(BaseModel):
     username = CharField(unique=True)
     password = CharField()
     experience = IntegerField(default=0)
-    accuracy = FloatField(default=0.0)
 
 class QuestionModel(BaseModel):
     image_file_path = CharField()
@@ -105,7 +104,8 @@ class DatabaseManager():
 
         state[UserState.NAME] = user.username
         state[UserState.EXP] = user.experience
-        state[UserState.ACCURACY] = user.accuracy
+        accuracy_val = self.calculate_user_accuracy(user)
+        state[UserState.ACCURACY] = self.format_accuracy_val(accuracy_val)
 
         state[UserState.ATTEMPTED_QUESTIONS] = self.fetch_attempted_questions(user.username)
         state[UserState.ATTEMPTED_COUNT] = len(state[UserState.ATTEMPTED_QUESTIONS])
@@ -232,11 +232,24 @@ class DatabaseManager():
 
     @staticmethod
     def _calculate_accuracy(user_answers: list, correct_tags: list, false_tags: list) -> float:
-        total_tags = len(correct_tags) + len(false_tags)
-        correct_selections = sum(1 for tag in user_answers if tag in correct_tags)
-        false_selections = sum(1 for tag in user_answers if tag in false_tags)
+        # Extracting only the tag names from the correct_tags and false_tags lists
+        correct_tag_names = [tag[0] for tag in correct_tags]
+        false_tag_names = [tag[0] for tag in false_tags]
 
-        return (correct_selections - false_selections) / total_tags
+        correct_selections = sum(1 for tag in user_answers if tag in correct_tag_names)
+        false_selections = sum(1 for tag in user_answers if tag in false_tag_names)
+
+        # Calculate net correct selections after accounting for incorrect ones
+        net_correct = correct_selections - false_selections
+
+        # If net correct selections is negative, clamp it to zero
+        net_correct = max(net_correct, 0)
+
+        # Calculate accuracy based on net correct selections and total number of correct tags
+        if len(correct_tag_names) == 0:  # Avoid division by zero
+            return 0.0
+
+        return net_correct / len(correct_tag_names)
 
     def _calculate_accuracy_for_relation(self, relation: UserQuestionRelation) -> float:
         question = relation.question
@@ -259,19 +272,13 @@ class DatabaseManager():
         attempted_questions = UserQuestionRelation.select().where(UserQuestionRelation.user == user)
 
         for relation in attempted_questions:
-            total_accuracy += self._calculate_accuracy_for_relation(relation)
+            accuracy_for_relation = self._calculate_accuracy_for_relation(relation)
+            total_accuracy += accuracy_for_relation
 
-        return total_accuracy / len(attempted_questions) if attempted_questions else 0.0
+        if len(attempted_questions) == 0:
+            return 0.0
+        return total_accuracy / len(attempted_questions)
 
-    def update_user_accuracy(self, username: str):
-        try:
-            user = UserModel.get(UserModel.username == username)
-            calculated_accuracy = self.calculate_user_accuracy(user)
-            
-            user.accuracy = calculated_accuracy
-            user.save()
-
-            # logger.info(f'Updated accuracy for user {username} to {calculated_accuracy}')
-        
-        except UserModel.DoesNotExist:
-            logger.error(f'Error: [update_user_accuracy] User {username} does not exist.')
+    @staticmethod
+    def format_accuracy_val(accuracy_value):
+        return "{:.1f}".format(accuracy_value * 100)

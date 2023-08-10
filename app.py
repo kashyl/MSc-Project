@@ -301,10 +301,7 @@ class App:
         # Add the stored question to the attempted questions list of the user
         self.db_manager.add_attempted_question(username, question_id, self._submitted_tags)
 
-        # # Update the user accuracy
-        self.db_manager.update_user_accuracy(username)
-
-        # # Increment the user experience with self.gained_exp
+        # Increment the user experience with self.gained_exp
         self.db_manager.increment_user_experience(username, self.gained_exp)
 
     def _save_current_image(self) -> str:    

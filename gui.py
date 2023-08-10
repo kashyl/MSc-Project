@@ -5,6 +5,7 @@ from app import App
 from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, GUIFiltersLabels, DIFFICULTY_LEVEL_EXP_GAIN
 from db_manager import GUIAlertType, DBResponse, UserState, QuestionKeys, get_default_state
 from custom_logging import logger
+from concurrent.futures import ThreadPoolExecutor
 
 DEFAULT_GUEST_WELCOME = ('**👤 Playing as a Guest.** Log in or **sign up** to gain access to **play statistics**, '
                                 '**question history**, and **compete on leaderboards**!'
@@ -96,7 +97,7 @@ class GradioUI:
         display_btn = override_display if override_display is not None else not self.app.image_is_filtered
         return gr.Button.update(visible=display_btn)
 
-    def on_submit(self, state: dict, selected_tags: list):
+    def on_submit(self, state: dict, selected_tags: list, rating_filter: str):
         state_user = state[UserState.NAME]
         if state_user:
             self.app.submit_answer(selected_tags_list=selected_tags, username=state_user)
@@ -114,7 +115,7 @@ class GradioUI:
             self.ui_clear_tag_wiki_result(),
             self.ui_show_tag_wiki_result_wrapper(False),
             self.ui_update_generate_btn_display(True),
-            *self.ui_update_user_account_information(state)
+            *self.ui_update_user_account_information(state, rating_filter)
         ) 
 
     def ui_show_results_wrapper(self, display=True):
@@ -278,19 +279,19 @@ class GradioUI:
         elif response.message_type == GUIAlertType.ERROR:
             raise gr.Error(response.message)
 
-    def account_register(self, username: str, password: str, state:dict):
+    def account_register(self, username: str, password: str, state:dict, rating_filter: str):
         response = None
         if self._account_register_validate_input(username, password):
             response = self.app.db_manager.register(username, password, state)
-        return self._finalize_login_response(response)
+        return self._finalize_login_response(response, rating_filter)
 
-    def account_login(self, username: str, password: str, state: dict):
+    def account_login(self, username: str, password: str, state: dict, rating_filter: str):
         response = None
         if self._account_login_validate_input(username, password):
             response = self.app.db_manager.login(username, password, state)
-        return self._finalize_login_response(response)
+        return self._finalize_login_response(response, rating_filter)
 
-    def _finalize_login_response(self, response):
+    def _finalize_login_response(self, response, rating_filter: str):
         self._handle_db_resp_message(response)
         if response is None or response.state == get_default_state():
             return (
@@ -303,23 +304,25 @@ class GradioUI:
             response.state, 
             self.ui_display_column(False),                              # account login/register form
             self.ui_display_column(True),                               # account details wrapper
-            *self.ui_update_user_account_information(response.state)
+            *self.ui_update_user_account_information(response.state, rating_filter)
         )
 
-    def ui_update_user_account_information(self, state: dict):
+    def ui_update_user_account_information(self, state: dict, rating_filter: str):
         if state == get_default_state():
             return self.ui_clear_user_account_information()
         return (
-            *self.ui_account_update_user_stats(state),                  # for the main tab
-            *self.ui_account_update_user_stats(state),                  # for the account details
-            self.ui_account_update_image_gallery(state),                # for the account image history gallery
-            self.ui_account_update_question_history_selector(state)     # for the question history selector dropdown
+            *self.ui_account_update_user_stats(state),                      # for the main tab
+            *self.ui_account_update_user_stats(state),                      # for the account details
+            self.ui_account_update_greeting(state),                         # for the account tab welcome message
+            self.ui_account_update_image_gallery(state, rating_filter),     # for the account image history gallery
+            self.ui_account_update_question_history_selector(state)         # for the question history selector dropdown
         )
 
     def ui_clear_user_account_information(self):
         return (
             *self.ui_reset_main_tab_user_info(),                    # for the main tab
             *[gr.Markdown.update(value=None) for _ in range(4)],    # for the account details
+            gr.Markdown.update(value=None),                         # for the account tab greeting message
             gr.Gallery.update(value=None),                          # for the account image history gallery
             gr.Dropdown.update(choices=None)                        # for the question history selector dropdown
         )
@@ -350,12 +353,42 @@ class GradioUI:
             *[gr.Markdown.update(value=None, visible=False) for _ in range(3)]
         )
 
-    def ui_account_update_image_gallery(self, state):
-        questions = state[UserState.ATTEMPTED_QUESTIONS]
-        # Create a list of tuples containing (image_file_path, label) for each question
-        gallery_data = [(q[QuestionKeys.IMAGE_FILE_PATH], f"QID: {q[QuestionKeys.ID]}") for q in questions]
-        return gr.Gallery.update(value=gallery_data)
+    def ui_account_update_greeting(self, state):
+        return gr.Markdown.update(value=f"""
+            # Hi there, {state[UserState.NAME]}! 👋
 
+            This is your Account profile page. Here you can:
+
+            - View your play statistics to track your performance.
+            - Browse the gallery of images from the questions you've attempted.
+            - Select and review any of your previously attempted questions.
+            """)
+
+    def _process_gallery_image(self, args):
+        """ Helper function to process each image in parallel."""
+        q, app, rating_filter = args  # unpack arguments
+        label = f"QID: {q[QuestionKeys.ID]}"
+        image_path = q[QuestionKeys.IMAGE_FILE_PATH]
+        image_rating = q[QuestionKeys.IMAGE_RATING]
+
+        # Check if the image should be blurred based on the rating and filter
+        if self.app.content_filter.is_rating_filtered_gui(rating_filter, image_rating):
+            label += f" ({q[QuestionKeys.IMAGE_RATING]})"
+            image_path = self.app.content_filter.get_blurred_image_from_path(image_path)
+                        
+        return (image_path, label)
+
+    def ui_account_update_image_gallery(self, state, rating_filter: str):        
+        questions = state[UserState.ATTEMPTED_QUESTIONS]
+
+        # Use ThreadPoolExecutor to process images concurrently
+        with ThreadPoolExecutor() as executor:
+            # Passing the app and rating_filter as well to process_image
+            args_list = [(q, self.app, rating_filter) for q in questions]
+            gallery_data = list(executor.map(self._process_gallery_image, args_list))
+                    
+        return gr.Gallery.update(value=gallery_data)
+    
     def ui_account_update_question_history_selector(self, state):
         questions = state[UserState.ATTEMPTED_QUESTIONS]
         
@@ -473,6 +506,8 @@ class GradioUI:
                     with gr.Row():
                         with gr.Column():
                             with gr.Box():
+                                account_greeting = gr.Markdown()
+                            with gr.Box():
                                 account_username = gr.Markdown()
                                 account_experience = gr.Markdown()
                                 account_questions = gr.Markdown()
@@ -483,7 +518,7 @@ class GradioUI:
                                 interactive=True,
                                 allow_custom_value=False
                                 )
-                        account_past_questions_image_gallery = gr.Gallery(label='Generated Images History', columns=3)
+                        account_past_questions_image_gallery = gr.Gallery(label='Generated Images History', columns=4)
                     with gr.Box(visible=False) as account_past_question_wrapper:
                         with gr.Row():
                             with gr.Column():
@@ -578,6 +613,7 @@ class GradioUI:
             user_data_components = [
                 *main_tab_user_details_components,
                 *account_tab_user_details_components,
+                account_greeting,
                 account_past_questions_image_gallery,
                 account_past_questions_selector_dd,
             ]
@@ -586,7 +622,8 @@ class GradioUI:
                 fn=self.on_submit, 
                 inputs=[
                     gr_state,
-                    image_tags
+                    image_tags,
+                    content_filter_rating
                 ],
                 outputs=[
                     gr_state,
@@ -627,7 +664,8 @@ class GradioUI:
                     inputs=[
                         account_input_username_tb,
                         account_input_password_tb,
-                        gr_state
+                        gr_state,
+                        content_filter_rating
                     ],
                     outputs=[
                         gr_state,
@@ -652,5 +690,16 @@ class GradioUI:
                     main_tab_user_questions_count_md  # Clears the main tab question count info
                 ]
             )
+
+            # account_past_questions_selector_dd.change(
+            #     fn=,
+            #     inputs=[
+            #         account_past_questions_selector_dd,
+            #         content_filter_rating
+            #     ],
+            #     outputs=[
+
+            #     ]
+            # )
 
         demo.queue(concurrency_count=20).launch()
