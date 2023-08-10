@@ -10,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 DEFAULT_GUEST_WELCOME = ('**👤 Playing as a Guest.** Log in or **sign up** to gain access to **play statistics**, '
                                 '**question history**, and **compete on leaderboards**!'
 )
+DROPDOWN_NO_SELECTION = "No Selection"
+
 
 class GUIProgressObserver:
     def __init__(self, gr_progress):
@@ -115,7 +117,7 @@ class GradioUI:
             self.ui_clear_tag_wiki_result(),
             self.ui_show_tag_wiki_result_wrapper(False),
             self.ui_update_generate_btn_display(True),
-            *self.ui_update_user_account_information(state, rating_filter)
+            *self.ui_update_user_account_information(state)
         ) 
 
     def ui_show_results_wrapper(self, display=True):
@@ -279,19 +281,19 @@ class GradioUI:
         elif response.message_type == GUIAlertType.ERROR:
             raise gr.Error(response.message)
 
-    def account_register(self, username: str, password: str, state:dict, rating_filter: str):
+    def account_register(self, username: str, password: str, state:dict):
         response = None
         if self._account_register_validate_input(username, password):
             response = self.app.db_manager.register(username, password, state)
-        return self._finalize_login_response(response, rating_filter)
+        return self._finalize_login_response(response)
 
-    def account_login(self, username: str, password: str, state: dict, rating_filter: str):
+    def account_login(self, username: str, password: str, state: dict):
         response = None
         if self._account_login_validate_input(username, password):
             response = self.app.db_manager.login(username, password, state)
-        return self._finalize_login_response(response, rating_filter)
+        return self._finalize_login_response(response)
 
-    def _finalize_login_response(self, response, rating_filter: str):
+    def _finalize_login_response(self, response):
         self._handle_db_resp_message(response)
         if response is None or response.state == get_default_state():
             return (
@@ -304,17 +306,16 @@ class GradioUI:
             response.state, 
             self.ui_display_column(False),                              # account login/register form
             self.ui_display_column(True),                               # account details wrapper
-            *self.ui_update_user_account_information(response.state, rating_filter)
+            *self.ui_update_user_account_information(response.state)
         )
 
-    def ui_update_user_account_information(self, state: dict, rating_filter: str):
+    def ui_update_user_account_information(self, state: dict):
         if state == get_default_state():
             return self.ui_clear_user_account_information()
         return (
             *self.ui_account_update_user_stats(state),                      # for the main tab
             *self.ui_account_update_user_stats(state),                      # for the account details
             self.ui_account_update_greeting(state),                         # for the account tab welcome message
-            self.ui_account_update_image_gallery(state, rating_filter),     # for the account image history gallery
             self.ui_account_update_question_history_selector(state)         # for the question history selector dropdown
         )
 
@@ -323,7 +324,6 @@ class GradioUI:
             *self.ui_reset_main_tab_user_info(),                    # for the main tab
             *[gr.Markdown.update(value=None) for _ in range(4)],    # for the account details
             gr.Markdown.update(value=None),                         # for the account tab greeting message
-            gr.Gallery.update(value=None),                          # for the account image history gallery
             gr.Dropdown.update(choices=None)                        # for the question history selector dropdown
         )
 
@@ -395,7 +395,7 @@ class GradioUI:
         questions = state[UserState.ATTEMPTED_QUESTIONS]
         
         # Format date and time for each question
-        dd_choices = [
+        dd_choices = [DROPDOWN_NO_SELECTION] + [
             f'Question ID: {q[QuestionKeys.ID]}, '
             f'Attempted on: {q[QuestionKeys.ATTEMPTED_TIME].strftime("%Y-%m-%d %H:%M:%S")}'
             for q in questions
@@ -412,7 +412,7 @@ class GradioUI:
             raise ValueError(f"Invalid question string format: {question_string}")
 
     def ui_account_update_selected_previous_question_details(self, state, selected_question, rating_filter):
-        if selected_question is None:
+        if selected_question is None or selected_question == DROPDOWN_NO_SELECTION:
             return (
                 gr.Box.update(visible=False),
                 gr.Image.update(value=None, label=None),
@@ -496,7 +496,7 @@ class GradioUI:
             gr.Box.update(visible=True)                         # box wrapper
         )
 
-    def ui_handle_rating_filter_update(self, rating_filter, state, selected_question):
+    def ui_handle_rating_filter_update(self, img_gallery: gr.Gallery, rating_filter, state, selected_question):
         """ Update past question gallery and image on content filter radio change. """
 
         if state == get_default_state():  # if user not logged in
@@ -505,11 +505,13 @@ class GradioUI:
                 gr.Image.update(value=None, label=None)
             )
         
-        # Update for the gallery remains consistent
-        gallery_update = self.ui_account_update_image_gallery(state, rating_filter)
+        if img_gallery:
+            gallery_update = self.ui_account_update_image_gallery(state, rating_filter)
+        else:
+            gallery_update = gr.Gallery.update(value=None)
 
         # check if there's a valid selected question
-        if selected_question:
+        if selected_question and selected_question != DROPDOWN_NO_SELECTION:
             question_data = self.app.db_manager.fetch_question(self._extract_question_id(selected_question))
             image_update = self.ui_update_past_question_image(question_data=question_data, rating_filter=rating_filter)
         else:
@@ -660,13 +662,17 @@ class GradioUI:
                                 account_experience = gr.Markdown()
                                 account_questions = gr.Markdown()
                                 account_accuracy = gr.Markdown()
-                            account_past_questions_selector_dd = gr.Dropdown(
-                                label='Question History', 
-                                info='Select a previous question to review its related image and tags.',
-                                interactive=True,
-                                allow_custom_value=False
-                                )
-                        account_past_questions_image_gallery = gr.Gallery(label='Generated Images History', columns=4)
+                            with gr.Row():
+                                account_past_questions_selector_dd = gr.Dropdown(
+                                    label='Question History', 
+                                    info="Select a previous question to review.",
+                                    interactive=True,
+                                    allow_custom_value=False,
+                                    scale=3
+                                    )
+                                
+                        account_past_questions_image_gallery = gr.Gallery(label='Generated Images History', columns=4, rows=1)
+
                     with gr.Box(visible=False) as account_past_question_wrapper:
                         with gr.Row():
                             with gr.Column():
@@ -684,8 +690,6 @@ class GradioUI:
                                 with gr.Box(visible=False) as past_question_tag_result_wrapper:
                                     account_past_question_tag_search_result = gr.Markdown()
                     with gr.Row():
-                        with gr.Column(scale=3):
-                            pass
                         account_logout_btn = gr.ClearButton(
                             value="Log out",
                             components = [
@@ -694,6 +698,8 @@ class GradioUI:
                                 account_input_password_tb,
                             ]
                         )
+                        account_update_gallery_btn = gr.Button('Update Image Gallery')
+                        
 
             with gr.Tab(label='Leaderboard'):
                 with gr.Row():
@@ -792,8 +798,7 @@ class GradioUI:
                 *main_tab_user_details_components,
                 *account_tab_user_details_components,
                 account_greeting,
-                account_past_questions_image_gallery,
-                account_past_questions_selector_dd,
+                account_past_questions_selector_dd
             ]
 
             submit_btn.click(
@@ -842,8 +847,7 @@ class GradioUI:
                     inputs=[
                         account_input_username_tb,
                         account_input_password_tb,
-                        gr_state,
-                        content_filter_rating
+                        gr_state
                     ],
                     outputs=[
                         gr_state,
@@ -866,6 +870,17 @@ class GradioUI:
                     main_tab_user_exp_md,             # Clears the main tab experience info
                     main_tab_user_accuracy_md,        # Clears the main tab accuracy info
                     main_tab_user_questions_count_md  # Clears the main tab question count info
+                ]
+            )
+
+            account_update_gallery_btn.click(
+                fn=self.ui_account_update_image_gallery,
+                inputs=[
+                    gr_state,
+                    content_filter_rating
+                ],
+                outputs=[
+                    account_past_questions_image_gallery
                 ]
             )
 
@@ -897,6 +912,7 @@ class GradioUI:
             content_filter_rating.change(
                 fn=self.ui_handle_rating_filter_update,
                 inputs=[
+                    account_past_questions_image_gallery,
                     content_filter_rating,
                     gr_state,
                     account_past_questions_selector_dd
