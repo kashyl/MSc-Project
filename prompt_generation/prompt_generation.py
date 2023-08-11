@@ -41,8 +41,26 @@ def random_from_class(item):
     return random.choice(attributes)
 
 def get_multiple_tags(elements, *probabilities):
-    count_needed = 1 + sum(1 for prob in probabilities if random.random() < prob)
-    return get_unique_samples(elements, count_needed)
+    """
+    Always returns one element from elements, and then additional elements based on probabilities.
+    """
+    elements = extract_value_if_enum(elements)  # Handle Enums
+    
+    # Always get one guaranteed object
+    selected_elements = [random.choice(elements)]
+    
+    # Based on the probabilities, try to get additional elements
+    for prob in probabilities:
+        if random.random() < prob:
+            element = random.choice(elements)
+            
+            # Ensure uniqueness, continue drawing until unique element is found
+            while element in selected_elements:
+                element = random.choice(elements)
+                
+            selected_elements.append(element)
+
+    return selected_elements
 
 def get_unique_samples(source, count):
     """Return a list with unique elements up to count."""
@@ -72,48 +90,52 @@ def choose_elements_based_on_probability(elements):
     for element, probability in extract_value_if_enum(elements):
         if random.random() < probability:
             chosen_elements.append(element)
-    
+            
     return chosen_elements
 
-def generate_prompt_animals():
-    animals = get_multiple_tags(Animals.animal_names)
-    # actions = get_unique_samples(Actions.basic_actions, len(animals))  # get as many actions as there are animals
-    
-    return choose_elements_based_on_probability(Defaults.animal) + choose_from(
-        *animals,
-        # *actions,
-        choose_one(
-            (Locations.natural_elements, 0.9), 
-            (Locations.urban_elements, 0.1)
-        ),
+def generate_prompt_animals():    
+    return (
+        choose_elements_based_on_probability(Defaults.animal) + 
+        get_multiple_tags(Animals.animal_names, 0.25, 0.1,) +
+        choose_from(
+            choose_one(
+                (Locations.natural_elements, 0.9), 
+                (Locations.urban_elements, 0.1)
+            )
+        ) +
         get_single_tag(Nature.nature_phenomena_elements, 0.5)
     )
 
 def generate_prompt_nature():
-    return choose_elements_based_on_probability(Defaults.nature) + choose_from(
-        get_multiple_tags(Locations.natural_elements, 0.75, 0.5, 0.25),
-        get_single_tag(Nature.plants_flowers, 0.75),
-        get_single_tag(Animals.animal_names, 0.5),
+    return (
+        choose_elements_based_on_probability(Defaults.nature) +
+        get_multiple_tags(Locations.natural_elements, 0.75, 0.5, 0.25) +
+        get_single_tag(Nature.plants_flowers, 0.75) +
+        get_single_tag(Animals.animal_names, 0.5) +
         get_single_tag(Nature.nature_phenomena_elements, 0.5)
     )
 
 def generate_prompt_sceneries():
-    return choose_elements_based_on_probability(Defaults.sceneries) + choose_from(
-        get_multiple_tags(Locations.natural_elements + Locations.urban_elements, 0.75, 0.5, 0.25),
-        get_multiple_tags(ObjectsAndConcepts.misc_objects, 0.25, 0.1, 0.05),
+    natural_elements_list = extract_value_if_enum(Locations.natural_elements)
+    urban_elements_list = extract_value_if_enum(Locations.urban_elements)
+    combined_elements = natural_elements_list + urban_elements_list
+    return (
+        choose_elements_based_on_probability(Defaults.sceneries) + 
+        get_multiple_tags(combined_elements, 1.0, 0.75, 0.5) + 
+        get_single_tag(ObjectsAndConcepts.misc_objects, 0.1) +
         get_single_tag(Nature.plants_flowers, 0.5)
     )
 
 def generate_prompt_clothes():
     source_to_probability = [
         (Clothing.dresses_and_skirts, 0.5),
-        (Clothing.inners, 0.5),
-        (Clothing.outers, 0.5),
-        (Clothing.bottoms, 0.5),
-        (Clothing.footwear, 0.5),
-        (Clothing.headwear, 0.5),
+        (Clothing.inners, 1),
+        (Clothing.outers, 1),
+        (Clothing.bottoms, 1),
+        (Clothing.footwear, 0.8),
+        (Clothing.headwear, 0.75),
         (Clothing.sleeves, 0.5),
-        (Clothing.accessories, 0.5),
+        (Clothing.accessories, 1),
         (Clothing.special_costumes_and_decorative_elements, 0.25),
         (Clothing.fabrics_and_patterns, 0.25)
     ]
@@ -122,12 +144,10 @@ def generate_prompt_clothes():
     return choose_from(*choices)
 
 def generate_prompt_objects():
-    return choose_from(
-        get_multiple_tags(ObjectsAndConcepts.misc_objects, 0.75, 0.5, 0.25)
-    )
+    return get_multiple_tags(ObjectsAndConcepts.misc_objects, 0.75, 0.5, 0.25)
 
 def generate_prompt_actions():
-    always_chosen = [Actions.basic_actions + Actions.poses]
+    always_chosen = [extract_value_if_enum(Actions.basic_actions), extract_value_if_enum(Actions.poses)]
     source_to_probability = [
         (Actions.hands_and_arms, 0.75),
         (Actions.legs_and_feet, 0.75),
@@ -140,17 +160,25 @@ def generate_prompt_actions():
     return choose_from(*choices)
 
 def generate_prompt_people():
-    always_chosen = [People.basic, People.occupations_and_roles, Hair.style, Hair.length, Hair.color, Expressions, 
-                     choose_one(
-                        (Locations.indoors, 0.25), 
-                        (Locations.urban_elements, 0.75)
-                    )]
+    basic_actions_list = extract_value_if_enum(Actions.basic_actions)
+    poses_list = extract_value_if_enum(Actions.poses)
+
+    always_chosen = [
+        get_single_tag(People.basic, 1.0),  # 100% chance to get one
+        get_single_tag(People.occupations_and_roles, 1.0),
+        get_single_tag(Hair.style, 1.0),
+        get_single_tag(Hair.length, 1.0),
+        get_single_tag(Hair.color, 1.0),
+        get_single_tag(random.choice(list(Expressions)).value, 1.0),
+        choose_one((Locations.indoors, 0.25), (Locations.urban_elements, 0.75))
+    ]
+
     source_to_probability = [
         (Hair.accessories, 0.5),
         (Hair.other, 0.25),
         (Eyes.color, 0.75),
         (Eyes.eyewear_related, 0.1),
-        (Actions.basic_actions + Actions.poses, 0.25),
+        (basic_actions_list + poses_list, 0.25),
         (Clothing.inners, 0.25),
         (Clothing.outers, 0.25),
         (Clothing.bottoms, 0.25),
@@ -158,15 +186,17 @@ def generate_prompt_people():
         (Clothing.headwear, 0.25),
         (Clothing.accessories, 0.1)
     ]
+
     choices = always_chosen + [get_single_tag(source, chance) for source, chance in source_to_probability]
+
     return choose_from(*choices)
 
 def generate_prompt_fantasy():
-    return choose_from(
-        choose_one((People.basic, 0.5), (Animals.animal_names, 0.5)),
-        get_single_tag(Eyes.eye_features_conditions, 0.1),
-        get_single_tag(Eyes.pupils_sclera, 0.25),
-        get_multiple_tags(Animals.animal_features, 0.5, 0.25, 0.1),
+    return (
+        get_single_tag(choose_one((People.basic, 0.25), (Animals.animal_names, 0.75)), 1.0) +
+        get_single_tag(Eyes.eye_features_conditions, 0.1) +
+        get_single_tag(Eyes.pupils_sclera, 0.25) +
+        get_multiple_tags(Animals.animal_features, 0.5, 0.25, 0.1) +
         get_multiple_tags(People.fantasy_and_mythical, 0.5, 0.25, 0.1)
     )
 
@@ -179,9 +209,9 @@ def generate_prompt_hairstyles():
     )
 
 def generate_prompt_expressions():
-    return choose_from(
+    return choose_elements_based_on_probability(Defaults.expressions) + choose_from(
         People.basic,
-        Expressions
+        random.choice(list(Expressions)).value
     )
 
 def generate_prompt(prompt_category):
@@ -202,3 +232,5 @@ def generate_prompt(prompt_category):
         raise ValueError("Invalid prompt category")
 
     return category_functions[prompt_category]()
+
+print(generate_prompt('Expressions'))
