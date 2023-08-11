@@ -11,6 +11,7 @@ from shared import (SDModels, EventHandler, RANDOM_MODEL_OPT_STRING, ObserverCon
                     DIFFICULTY_LEVEL_TAG_RATIO, DIFFICULTY_LEVEL_EXP_GAIN, IMG_DIR)
 from wd14_tagging.wd14_tagging import WD14Tagger
 from content_filter import ContentFilter
+from user_feedback import UserFeedback
 from danbooru_api_wrapper import DanbooruApi
 from db_manager import DatabaseManager, tags_to_json, json_to_tags
 
@@ -47,6 +48,7 @@ class App:
         self.content_filter = ContentFilter()
         self.danbooru_api = DanbooruApi()
         self.db_manager = DatabaseManager()
+        self.user_feedback = UserFeedback()
 
         # Set function pointers based on the debug flags
         self._generate_image_func = self._generate_image if not debug_mock_image else self._mock_gen_image
@@ -399,3 +401,16 @@ class App:
         exp_required_for_next_level = exp_needed
 
         return level, exp_for_current_level, exp_required_for_next_level
+    
+    def submit_feedback(self, user_input: str, user_name: str, selected_tags: list = None):
+        self.user_feedback.process_feedback(
+            user_input, 
+            self.image_gen_info, 
+            user_name, 
+            self.image_gen_time, 
+            self.image_rating, 
+            self.image_tags, 
+            self.false_tags, 
+            self.difficulty_level,
+            selected_tags
+        )

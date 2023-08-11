@@ -247,6 +247,10 @@ class GradioUI:
         if len(password) < 4 or len(password) > 30:
             gr.Warning("Password must be between 4 to 30 characters long.")
             return False
+        
+        if username in ['None', 'Guest', 'Admin']:  # usually there'd be a list of these but no need atm
+            gr.Warning(f'Username {username} is restricted.')
+            return False
 
         return True
     
@@ -581,6 +585,28 @@ class GradioUI:
 
         return leaderboard_data_adjusted, gr.Markdown.update(value=last_updated_msg)
 
+    def submit_feedback(self, state: dict, feedback_text: str):
+        # TODO: limit submissions properly to avoid spam, for now just hiding elements
+
+        if not feedback_text:
+            gr.Warning('Please enter your comments or suggestions in the provided text box before submitting.')
+            return self.ui_refresh_feedback_submit()
+
+        self.app.submit_feedback(feedback_text, state[UserState.NAME] if state[UserState.NAME] else 'Guest')
+        gr.Info('Thank you for your feedback!')
+        return (
+            gr.Textbox.update(value='', visible=False), # user innput
+            gr.Button.update(visible=False),            # submit btn
+            gr.Box.update(visible=True)                 # thank you msg
+        )
+
+    def ui_refresh_feedback_submit(self):
+        return (
+            gr.Textbox.update(value='', visible=True), # user innput
+            gr.Button.update(visible=True),            # submit btn
+            gr.Box.update(visible=False)               # thank you msg
+        )
+
     def launch(self):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
             gr_state = gr.State(value=get_default_state())
@@ -606,8 +632,17 @@ class GradioUI:
                         with gr.Column():
                             generated_image = gr.Image(elem_id='generated-image', label='Click the button to generate an image.')
                             with gr.Row():
-                                with gr.Accordion('Generation Details', visible=False, open=False) as gen_info_wrapper:
+                                with gr.Accordion('Generation Details & Submit Feedback', visible=False, open=False) as gen_info_wrapper:
                                     gen_info = gr.Markdown()
+                                    main_user_feedback_txt = gr.Textbox(
+                                        lines=3, 
+                                        label="Suggestions or Issues", 
+                                        info="Let us know if you have any suggestions or you would like to report an issue.",
+                                        interactive=True
+                                    )
+                                    main_user_feedback_submit = gr.Button('Submit Feedback')
+                                    with gr.Box(visible=False) as main_feedback_thank_you:
+                                        gr.Markdown('Your feedback has been submitted. Thank you!')
                         with gr.Column():
                             with gr.Box(visible=False) as reveal_content_wrapper:
                                 with gr.Column():
@@ -677,8 +712,21 @@ class GradioUI:
                         with gr.Row():
                             with gr.Column():
                                 account_past_question_image = gr.Image(show_download_button='True', show_share_button='True')
-                                with gr.Accordion(label="Generation Details", open=False) as account_past_question_image_gen_info_wrapper:
+                                with gr.Accordion('Generation Details', open=False):
                                     account_past_question_image_gen_info = gr.Markdown()
+
+                                # # TODO: a gr.Button() elem defined before the gr.ClearButton() seems to cause issues.
+                                # #       Low priority issue, fix later if there is time.
+                                #     account_user_feedback_txt = gr.Textbox(
+                                #         lines=3, 
+                                #         label="Suggestions or Issues", 
+                                #         info="Let us know if you have any suggestions or you would like to report an issue.",
+                                #         interactive=True
+                                #     )
+                                #     account_user_feedback_submit = gr.Button('Submit Feedback')
+                                #     with gr.Box(visible=False) as account_feedback_thank_you:
+                                #         gr.Markdown('Your feedback has been submitted. Thank you!')
+                                
                             with gr.Column():
                                 with gr.Box():
                                     account_past_question_tags_md = gr.Markdown()
@@ -932,5 +980,37 @@ class GradioUI:
                 fn=self.fetch_leaderboard_data,
                 outputs=[leaderboard, leaderboard_last_updated_msg]
             )
+
+            # User feedback
+            def assign_user_feedback_events(button, text_input, thank_you, gen_info_obj=None):
+                # click event
+                button.click(
+                    fn=self.submit_feedback,
+                    inputs=[
+                        gr_state,
+                        text_input
+                    ],
+                    outputs=[
+                        text_input,
+                        button,
+                        thank_you
+                    ]
+                )
+                # change event if gen_info_obj provided
+                if gen_info_obj:
+                    gen_info_obj.change(
+                        fn=self.ui_refresh_feedback_submit,
+                        outputs=[
+                            text_input,
+                            button,
+                            thank_you
+                        ]
+                    )
+            configs = [
+                (main_user_feedback_submit, main_user_feedback_txt, main_feedback_thank_you, gen_info),
+                # (account_user_feedback_submit, account_user_feedback_txt, account_feedback_thank_you, account_past_question_image_gen_info)
+            ]
+            for conf in configs:
+                assign_user_feedback_events(*conf)
 
         demo.queue(concurrency_count=20).launch()
