@@ -315,6 +315,10 @@ class App:
                 counter += 1
             return path
 
+        # Check if IMG_DIR exists, if not create it
+        if not os.path.exists(IMG_DIR):
+            os.makedirs(IMG_DIR)
+
         filename = f"img_{datetime.now().strftime('%Y%m%d%H%M%S')}.png"
         file_path = os.path.join(IMG_DIR, filename)
         unique_file_path = uniquify(file_path)

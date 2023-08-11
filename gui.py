@@ -726,7 +726,7 @@ class GradioUI:
                                 #     account_user_feedback_submit = gr.Button('Submit Feedback')
                                 #     with gr.Box(visible=False) as account_feedback_thank_you:
                                 #         gr.Markdown('Your feedback has been submitted. Thank you!')
-                                
+
                             with gr.Column():
                                 with gr.Box():
                                     account_past_question_tags_md = gr.Markdown()
@@ -748,7 +748,6 @@ class GradioUI:
                         )
                         account_update_gallery_btn = gr.Button('Update Image Gallery')
                         
-
             with gr.Tab(label='Leaderboard'):
                 with gr.Row():
                     with gr.Column(scale=7):
