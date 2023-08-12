@@ -1,4 +1,4 @@
-from tag_categories import *
+from prompt_generation.tag_categories import *
 import random
 
 def extract_value_if_enum(source):
@@ -214,23 +214,21 @@ def generate_prompt_expressions():
         random.choice(list(Expressions)).value
     )
 
-def generate_prompt(prompt_category):
-    category_functions = {
-        "Animals": generate_prompt_animals,
-        "Nature": generate_prompt_nature,
-        "Sceneries": generate_prompt_sceneries,
-        "Clothes": generate_prompt_clothes,
-        "Objects": generate_prompt_objects,
-        "Actions": generate_prompt_actions,
-        "People": generate_prompt_people,
-        "Fantasy": generate_prompt_fantasy,
-        "Hair Styles": generate_prompt_hairstyles,
-        "Expressions": generate_prompt_expressions,
-    }
+PROMPT_CATEGORIES_FUNCTIONS = {
+    "Animals": generate_prompt_animals,
+    "Nature": generate_prompt_nature,
+    "Sceneries": generate_prompt_sceneries,
+    "Clothes": generate_prompt_clothes,
+    "Objects": generate_prompt_objects,
+    "Actions": generate_prompt_actions,
+    "People": generate_prompt_people,
+    "Fantasy": generate_prompt_fantasy,
+    "Hair Styles": generate_prompt_hairstyles,
+    "Expressions": generate_prompt_expressions,
+}
 
-    if prompt_category not in category_functions:
+def generate_prompt(prompt_category):
+    if prompt_category not in PROMPT_CATEGORIES_FUNCTIONS:
         raise ValueError("Invalid prompt category")
 
-    return category_functions[prompt_category]()
-
-print(generate_prompt('Expressions'))
+    return PROMPT_CATEGORIES_FUNCTIONS[prompt_category]()

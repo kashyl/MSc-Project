@@ -1,4 +1,4 @@
-import re
+import re, random
 import gradio as gr
 from datetime import datetime
 from app import App
@@ -6,11 +6,13 @@ from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, Difficult
 from db_manager import GUIAlertType, DBResponse, UserState, QuestionKeys, get_default_state
 from custom_logging import logger
 from concurrent.futures import ThreadPoolExecutor
+from prompt_generation.prompt_generation import PROMPT_CATEGORIES_FUNCTIONS, generate_prompt
 
 DEFAULT_GUEST_WELCOME = ('**👤 Playing as a Guest.** Log in or **sign up** to gain access to **play statistics**, '
                                 '**question history**, and **compete on leaderboards**!'
 )
 DROPDOWN_NO_SELECTION = "No Selection"
+PROMPT_RANDOM_CATEGORY = "Random Category"
 
 
 class GUIProgressObserver:
@@ -26,6 +28,16 @@ class GradioUI:
         self.app = app
 
     def generate_question(self, prompt: str, sd_model: str, content_filter_level: str, difficulty: str, gr_progress=gr.Progress()):
+        # Process prompt
+        if not prompt or prompt == PROMPT_RANDOM_CATEGORY:
+            prompt = random.choice(list(PROMPT_CATEGORIES_FUNCTIONS.keys()))
+
+        # If the prompt selection is one of the categories, generate.
+        # Otherwise keep as is since it's a user custom prompt.
+        if prompt in PROMPT_CATEGORIES_FUNCTIONS:
+            prompt = generate_prompt(prompt)
+            prompt = ', '.join(prompt)
+
         with ObserverContext(self.app.event_handler, GUIProgressObserver(gr_progress)):
             self.app.generate_round(prompt, sd_model, content_filter_level, difficulty)
 
@@ -619,7 +631,15 @@ class GradioUI:
                         main_tab_user_accuracy_md = gr.Markdown(visible=False)
                         main_tab_user_questions_count_md = gr.Markdown(visible=False)
                 with gr.Row():
-                    custom_prompt = gr.Textbox('whale, deep blue sky, white birds, star, thick clouds', label='Custom prompt')
+                    generation_prompt = gr.Dropdown(
+                        choices=[PROMPT_RANDOM_CATEGORY] + list(PROMPT_CATEGORIES_FUNCTIONS.keys()),
+                        value=PROMPT_RANDOM_CATEGORY,
+                        allow_custom_value=True,
+                        interactive=True,
+                        multiselect=False,
+                        label='Image Generation Prompt',
+                        info='Choose a category to generate an image prompt, or manually input your own description.'
+                    )
                     game_difficulty = gr.Radio(
                         [d.value for d in DifficultyLevels],
                         value=DifficultyLevels.NORMAL.value, 
@@ -798,7 +818,7 @@ class GradioUI:
                 button.click(
                     self.generate_question, 
                     inputs=[
-                        custom_prompt, 
+                        generation_prompt, 
                         sd_checkpoint,
                         content_filter_rating, 
                         game_difficulty
