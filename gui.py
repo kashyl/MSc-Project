@@ -1,12 +1,15 @@
-import re, random
+import re, random, os, hmac
 import gradio as gr
 from datetime import datetime
+from dotenv import load_dotenv
 from app import App
 from shared import SDModels, RANDOM_MODEL_OPT_STRING, ObserverContext, DifficultyLevels, GUIFiltersLabels, DIFFICULTY_LEVEL_EXP_GAIN
 from db_manager import GUIAlertType, DBResponse, UserState, QuestionKeys, get_default_state
 from custom_logging import logger
 from concurrent.futures import ThreadPoolExecutor
 from prompt_generation.prompt_generation import PROMPT_CATEGORIES_FUNCTIONS, generate_prompt
+
+load_dotenv()   # for app auth if share==True
 
 DEFAULT_GUEST_WELCOME = ('**👤 Playing as a Guest.** Log in or **sign up** to gain access to **play statistics**, '
                                 '**question history**, and **compete on leaderboards**!'
@@ -1032,4 +1035,19 @@ class GradioUI:
             for conf in configs:
                 assign_user_feedback_events(*conf)
 
-        demo.queue(concurrency_count=20).launch(share=share)
+        def app_auth(username, password):
+            auth_user = os.getenv('APP_AUTH_USER')
+            auth_pwd = os.getenv('APP_AUTH_PWD')
+
+            if auth_user is None or auth_pwd is None:
+                raise EnvironmentError("Required environment variables are not set.")
+            
+            # constant-time comparison to prevent timing attacks
+            return hmac.compare_digest(username, auth_user) and hmac.compare_digest(password, auth_pwd)
+
+        demo.queue(concurrency_count=20).launch(
+            share=share, 
+            server_port=7868, 
+            auth=app_auth if share else None, 
+            auth_message='Please enter the login details sent alongside the share link.'
+        )
