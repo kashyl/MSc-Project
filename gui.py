@@ -109,7 +109,7 @@ class GradioUI:
 
     def ui_update_submit_btn_display(self, override_display=None):
         display_btn = override_display if override_display is not None else not self.app.image_is_filtered
-        return gr.Button.update(visible=display_btn)
+        return gr.Row.update(visible=display_btn)
 
     def on_submit(self, state: dict, selected_tags: list, rating_filter: str):
         state_user = state[UserState.NAME]
@@ -678,8 +678,9 @@ class GradioUI:
                                 interactive=True, 
                                 visible=True
                             )
-
-                            submit_btn = gr.Button("Submit", visible=False)
+                            with gr.Row(visible=False) as submit_btn_wrapper:
+                                clear_selected_tags = gr.ClearButton(value="Clear Selection", components=image_tags)
+                                submit_btn = gr.Button("Submit")
 
                             with gr.Box(visible=False) as results_wrapper:
                                 with gr.Column():
@@ -830,7 +831,7 @@ class GradioUI:
                         reveal_content_wrapper,
                         filter_disclaimer_lbl,
                         generate_btn,
-                        submit_btn,
+                        submit_btn_wrapper,
                         results_wrapper
                     ]
                 )
@@ -845,7 +846,7 @@ class GradioUI:
                     image_tags,
                     generated_image,
                     reveal_content_wrapper,
-                    submit_btn
+                    submit_btn_wrapper
                 ]
             )
 
@@ -877,7 +878,7 @@ class GradioUI:
                 ],
                 outputs=[
                     gr_state,
-                    submit_btn,
+                    submit_btn_wrapper,
                     image_tags,
                     results_wrapper,
                     results_md,

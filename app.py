@@ -244,6 +244,7 @@ class App:
     def _generate_image(self, prompt: str, checkpoint: str):
         logger.info(f'Generating image with prompt: {prompt}')
         generated_image = self._run_sd_generate(prompt, checkpoint)
+        self._set_image_generation_time()
         self._set_image(generated_image)
         self._extract_image_generation_info()
 
