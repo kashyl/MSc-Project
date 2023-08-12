@@ -3,7 +3,7 @@ from gui import GradioUI
 
 def main():
     app = App(debug_mock_image=True, debug_mock_tags=True)
-    GradioUI(app).launch()
+    GradioUI(app).launch(share=False)
 
 if __name__ == '__main__':
     main()

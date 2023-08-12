@@ -553,17 +553,15 @@ class GradioUI:
         """Recursively obtain all nested children components from a component."""
         children_list = []
 
-        # print(f"Current component: {component}") 
-
         if hasattr(component, 'children') and component.children:
-            # print(f"Children of {component}: {component.children}")
-
             # Ensure that component.children is iterable (i.e., a list or tuple)
             children = component.children if isinstance(component.children, (list, tuple)) else [component.children]
             
             for child in children:
-                children_list.append(child)
-                children_list.extend(self._collect_nested_components(child))
+                # Skip adding to the list if child is a button component
+                if not isinstance(child, (gr.Button, gr.ClearButton)):
+                    children_list.append(child)
+                    children_list.extend(self._collect_nested_components(child))
 
         return children_list
 
@@ -619,7 +617,7 @@ class GradioUI:
             gr.Box.update(visible=False)               # thank you msg
         )
 
-    def launch(self):
+    def launch(self, share=False):
         with gr.Blocks(css="footer {visibility: hidden}") as demo:
             gr_state = gr.State(value=get_default_state())
 
@@ -703,8 +701,9 @@ class GradioUI:
                         label='You are not currently logged in.', 
                         info='Please select account action:',
                         value="Login")
-                        account_input_username_tb = gr.Textbox(label="Username", type="text", interactive=True)
-                        account_input_password_tb = gr.Textbox(label="Password", type="password", interactive=True)
+                        with gr.Row():
+                            account_input_username_tb = gr.Textbox(label="Username", type="text", interactive=True)
+                            account_input_password_tb = gr.Textbox(label="Password", type="password", interactive=True)
                     account_login_btn = gr.Button("Login", visible=True)
                     account_register_btn = gr.Button("Register", visible=False)
                 
@@ -719,15 +718,16 @@ class GradioUI:
                                 account_questions = gr.Markdown()
                                 account_accuracy = gr.Markdown()
                             with gr.Row():
-                                account_past_questions_selector_dd = gr.Dropdown(
-                                    label='Question History', 
-                                    info="Select a previous question to review.",
-                                    interactive=True,
-                                    allow_custom_value=False,
-                                    scale=3
-                                    )
-                                
+                                account_update_gallery_btn = gr.Button('Update Image Gallery')                        
                         account_past_questions_image_gallery = gr.Gallery(label='Generated Images History', columns=4, rows=1)
+
+                    account_past_questions_selector_dd = gr.Dropdown(
+                        label='Question History', 
+                        info="Select a previous question to review.",
+                        interactive=True,
+                        allow_custom_value=False,
+                        scale=3
+                        )
 
                     with gr.Box(visible=False) as account_past_question_wrapper:
                         with gr.Row():
@@ -767,7 +767,6 @@ class GradioUI:
                                 account_input_password_tb,
                             ]
                         )
-                        account_update_gallery_btn = gr.Button('Update Image Gallery')
                         
             with gr.Tab(label='Leaderboard'):
                 with gr.Row():
@@ -780,12 +779,12 @@ class GradioUI:
                             Alternatively, you can manually update it by pressing the Refresh button.
                             '''
                         )
-
-                    with gr.Box():
-                        leaderboard_last_updated_msg = gr.Markdown(
-                            value=f"<span style='color: grey;'>Last updated at {datetime.now().strftime('%H:%M:%S')}</span>"
-                        )
-                    leaderboard_refresh_btn = gr.Button('Refresh')
+                    with gr.Row():
+                        with gr.Box():
+                            leaderboard_last_updated_msg = gr.Markdown(
+                                value=f"<span style='color: grey;'>Last updated at {datetime.now().strftime('%H:%M:%S')}</span>"
+                            )
+                        leaderboard_refresh_btn = gr.Button('Refresh')
                 leaderboard = gr.Dataframe(
                     headers=['👤 User', '🏅 Level', '🎯 Accuracy', '❓ Questions Answered'],
                     datatype=["str", "number", "number", "number"],
@@ -1033,4 +1032,4 @@ class GradioUI:
             for conf in configs:
                 assign_user_feedback_events(*conf)
 
-        demo.queue(concurrency_count=20).launch()
+        demo.queue(concurrency_count=20).launch(share=share)
