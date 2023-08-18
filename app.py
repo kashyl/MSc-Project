@@ -324,7 +324,10 @@ class App:
         filename = f"img_{datetime.now().strftime('%Y%m%d%H%M%S')}.png"
         file_path = os.path.join(IMG_DIR, filename)
         unique_file_path = uniquify(file_path)
-        self.original_image.save(unique_file_path)
+        if self._image_is_filtered:
+            self.content_filter.original_image.save(unique_file_path)
+        else:
+            self.image.save(unique_file_path)
         logger.info(f'Image saved: {unique_file_path}')
         return unique_file_path
 

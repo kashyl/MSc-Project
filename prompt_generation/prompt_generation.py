@@ -96,7 +96,7 @@ def choose_elements_based_on_probability(elements):
 def generate_prompt_animals():    
     return (
         choose_elements_based_on_probability(Defaults.animal) + 
-        get_multiple_tags(Animals.animal_names, 0.25, 0.1,) +
+        get_multiple_tags(Animals.animal_names, 0.25, 0.1) +
         choose_from(
             choose_one(
                 (Locations.natural_elements, 0.9), 
