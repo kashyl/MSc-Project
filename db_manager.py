@@ -89,8 +89,10 @@ def json_to_tags(json_str: str) -> list:
 
 class DatabaseManager():
     def __init__(self):
+        if not DB.is_closed():
+            DB.close()
         DB.connect()
-        DB.create_tables([UserModel, QuestionModel, UserQuestionRelation])
+        DB.create_tables([UserModel, QuestionModel, UserQuestionRelation], safe=True)
         
     def get_user_state(self, state, user_model_or_name) -> dict:
         if isinstance(user_model_or_name, UserModel):
@@ -229,12 +231,11 @@ class DatabaseManager():
         if created:
             logger.info(f'Question {question_id} added to user "{user_username}" attempted questions at {relation.attempted_at}.')
         else:
-            relation.attempted_at = datetime.datetime.now()  # Update the timestamp
+            relation.attempted_at = datetime.now()  # Update the timestamp
             relation.user_answers = user_answers_json  # Update the user answers
             relation.save()  # Save the updated details to the database
             logger.info(f'Question {question_id} already existed in user "{user_username}" attempted questions. \
                         Updated attempted time to {relation.attempted_at}.')
-
 
     def fetch_attempted_questions(self, username):
         try:
@@ -310,14 +311,6 @@ class DatabaseManager():
         false_tags = json.loads(question.false_tags)
 
         return self._calculate_accuracy(user_answers, correct_tags, false_tags)
-
-    def calculate_single_question_accuracy_for_user(self, user: UserModel, question: QuestionModel) -> float:
-        try:
-            relation = UserQuestionRelation.get((UserQuestionRelation.user == user) & (UserQuestionRelation.question == question))
-            return self._calculate_accuracy_for_relation(relation)
-        except UserQuestionRelation.DoesNotExist:
-            # The user has not attempted this question
-            return 0.0
 
     def calculate_user_accuracy(self, user: UserModel) -> float:
         total_accuracy = 0.0
