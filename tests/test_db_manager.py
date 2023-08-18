@@ -370,6 +370,46 @@ class TestDatabaseManager(unittest.TestCase):
         self.assertIsNone(result)
         self.mock_info.assert_called_once_with(f'Question with ID -1 not found.')
 
+    @patch.object(DatabaseManager, 'calculate_user_accuracy')
+    @patch.object(DatabaseManager, 'format_accuracy_val')
+    @patch.object(DatabaseManager, 'fetch_attempted_questions')
+    def test_GIVEN_user_WHEN_fetch_user_leaderboard_data_THEN_user_leaderboard_data_returned(self, mock_attempted_questions, mock_format_accuracy, mock_calculate_accuracy):
+        # Setup Mocks
+        mock_user = Mock()
+        mock_user.username = "test_user"
+        mock_user.experience = 100
+        mock_calculate_accuracy.return_value = 0.85
+        mock_format_accuracy.return_value = "85%"
+        mock_attempted_questions.return_value = list(range(10))  # 10 questions
+
+        # Call Method
+        result = self.db_manager.fetch_leaderboard_data_for_user(mock_user)
+
+        # Validate Results
+        self.assertEqual(result, ["test_user", 100, "85%", 10])
+
+    @patch.object(DatabaseManager, 'fetch_leaderboard_data_for_user')
+    @patch.object(UserModel, 'select')
+    def test_WHEN_fetch_all_users_leaderboard_data_THEN_leaderboard_data_returned(self, mock_select, mock_fetch_leaderboard_data_for_user):
+        # Setup Mocks
+        mock_user1 = Mock()
+        mock_user2 = Mock()
+        mock_user3 = Mock()
+        
+        mock_select.return_value.order_by.return_value = [mock_user1, mock_user2, mock_user3]
+        
+        user1_data = ["user1", 500, "95%", 50]
+        user2_data = ["user2", 400, "90%", 40]
+        user3_data = ["user3", 300, "85%", 30]
+
+        mock_fetch_leaderboard_data_for_user.side_effect = [user1_data, user2_data, user3_data]
+
+        # Call Method
+        result = self.db_manager.fetch_all_users_leaderboard_data()
+
+        # Validate Results
+        self.assertEqual(result, [user1_data, user2_data, user3_data])
+
     @patch('db_manager.bcrypt.checkpw', return_value=True)
     @patch('db_manager.UserModel.get')
     def test_GIVEN_existing_user_and_correct_password_WHEN_login_THEN_successful_login_response(self, mock_user_get, mock_checkpw):
@@ -473,46 +513,6 @@ class TestDatabaseManager(unittest.TestCase):
             
         # Check if the log statement was executed correctly
         self.mock_info.assert_called_once_with('Account Registration: Username "existing_user" is already taken.')
-
-    @patch.object(DatabaseManager, 'calculate_user_accuracy')
-    @patch.object(DatabaseManager, 'format_accuracy_val')
-    @patch.object(DatabaseManager, 'fetch_attempted_questions')
-    def test_fetch_leaderboard_data_for_user(self, mock_attempted_questions, mock_format_accuracy, mock_calculate_accuracy):
-        # Setup Mocks
-        mock_user = Mock()
-        mock_user.username = "test_user"
-        mock_user.experience = 100
-        mock_calculate_accuracy.return_value = 0.85
-        mock_format_accuracy.return_value = "85%"
-        mock_attempted_questions.return_value = list(range(10))  # 10 questions
-
-        # Call Method
-        result = self.db_manager.fetch_leaderboard_data_for_user(mock_user)
-
-        # Validate Results
-        self.assertEqual(result, ["test_user", 100, "85%", 10])
-
-    @patch.object(DatabaseManager, 'fetch_leaderboard_data_for_user')
-    @patch.object(UserModel, 'select')
-    def test_fetch_all_users_leaderboard_data(self, mock_select, mock_fetch_leaderboard_data_for_user):
-        # Setup Mocks
-        mock_user1 = Mock()
-        mock_user2 = Mock()
-        mock_user3 = Mock()
-        
-        mock_select.return_value.order_by.return_value = [mock_user1, mock_user2, mock_user3]
-        
-        user1_data = ["user1", 500, "95%", 50]
-        user2_data = ["user2", 400, "90%", 40]
-        user3_data = ["user3", 300, "85%", 30]
-
-        mock_fetch_leaderboard_data_for_user.side_effect = [user1_data, user2_data, user3_data]
-
-        # Call Method
-        result = self.db_manager.fetch_all_users_leaderboard_data()
-
-        # Validate Results
-        self.assertEqual(result, [user1_data, user2_data, user3_data])
 
 if __name__ == '__main__':
     unittest.main()
