@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from sd_api_wrapper import *
 from PIL import Image
 
@@ -19,6 +19,7 @@ class TestSDApiWrapper(unittest.TestCase):
     def test_decode_base64_to_image_success(self, mock_open, mock_b64decode):
         mock_b64decode.return_value = b'valid_image_bytes'
         mock_image = Image.new('RGB', (60, 30))
+        mock_image.close = Mock()
         mock_open.return_value = mock_image
         image, image_data = decode_base64_to_image("ABC123")
         self.assertIsInstance(image, Image.Image)
@@ -43,6 +44,7 @@ class TestSDApiWrapper(unittest.TestCase):
         result_image = add_generation_metadata(test_image, metadata)
         self.assertIsInstance(result_image, Image.Image)
         self.addCleanup(test_image.close)
+        self.addCleanup(result_image.close)
 
     @patch('sd_api_wrapper.os.listdir')
     @patch('sd_api_wrapper.Image.open')
@@ -54,6 +56,7 @@ class TestSDApiWrapper(unittest.TestCase):
     def test_mock_generate_image(self):
         image = mock_generate_image()
         self.assertIsInstance(image, Image.Image)
+        self.addCleanup(image.close)
 
     def test_add_prefix_to_prompt(self):
         prompt = "test_prompt"
