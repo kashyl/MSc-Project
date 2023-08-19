@@ -71,13 +71,6 @@ class App:
         """
         Generates an image based on a specified prompt using a given model checkpoint,
         and periodically reports the progress of the generation.
-
-        :param prompt: The prompt to use for image generation.
-        :param checkpoint: The model checkpoint to use for image generation.
-        :param gr_progress: A callable object that takes two parameters, the current progress
-                            as a float, and a description string, which is used to report
-                            progress back to the caller.
-        :return: The generated image with metadata.
         """
         async def inner():
             sd_model = (
@@ -166,6 +159,10 @@ class App:
     def image_tags(self):
         return self.wd14_tagger.image_tags
     
+    @image_tags.setter
+    def image_tags(self, value):
+        self._image_tags = value
+
     @property
     def image_rating(self):
         return self.wd14_tagger.image_rating
