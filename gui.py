@@ -41,6 +41,9 @@ class GradioUI:
             prompt = generate_prompt(prompt)
             prompt = ', '.join(prompt)
 
+        if not sd_model:
+            sd_model = RANDOM_MODEL_OPT_STRING
+
         with ObserverContext(self.app.event_handler, GUIProgressObserver(gr_progress)):
             self.app.generate_round(prompt, sd_model, content_filter_level, difficulty)
 
@@ -88,6 +91,8 @@ class GradioUI:
 
     def ui_update_reveal_btn_wrapper_visibility(self, override_display=None):
         display_btn = override_display if override_display is not None else self.app.image_is_filtered
+        if display_btn is None:
+            display_btn = False
         return gr.Box.update(visible=display_btn)
 
     def ui_update_filtered_disclaimer_lbl(self):
