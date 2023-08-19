@@ -1,10 +1,7 @@
 import unittest
-from unittest.mock import patch, Mock, MagicMock, AsyncMock
+from unittest.mock import patch
 from sd_api_wrapper import *
 from PIL import Image
-from io import BytesIO
-import asyncio
-from contextlib import contextmanager
 
 class TestSDApiWrapper(unittest.TestCase):
 
